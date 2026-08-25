@@ -29,7 +29,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from github_register.config import Config, load_config
-from github_register.litensi import LitensiClient, LitensiError
+from github_register.mailcx import MailCxClient, MailCxError
 from github_register.runner import run_job, silence_playwright_noise
 
 silence_playwright_noise()  # hide TargetClosedError spam when browsers close
@@ -40,7 +40,7 @@ PORT = int(os.getenv("GITHUB_REGISTER_PORT") or "8093")  # 8092 is used by grok-
 
 DIST = ROOT / "frontend" / "dist"
 
-SECRET_FIELDS = {"litensi_api_key", "proxy"}
+SECRET_FIELDS = {"proxy", "litensi_api_key"}
 
 
 def _migrate_legacy_account_files() -> None:
@@ -149,6 +149,8 @@ class StartBody(BaseModel):
 
 
 class ConfigBody(BaseModel):
+    mail_provider: Optional[str] = None
+    mailcx_domain: Optional[str] = None
     litensi_api_id: Optional[str] = None
     litensi_api_key: Optional[str] = None
     litensi_site: Optional[str] = None
@@ -277,12 +279,32 @@ async def api_put_config(body: ConfigBody, x_access_key: Optional[str] = Header(
     return {"ok": True, "config": _public_config()}
 
 
-class LitensiZonesBody(BaseModel):
-    """Optional overrides so the user can test credentials/site BEFORE saving.
+class MailCxConfigBody(BaseModel):
+    """Optional override for mail.cx domain."""
+    mailcx_domain: Optional[str] = None
 
-    Any field left None (or a masked '*' placeholder for the API key) falls back
-    to the value already stored in config.json.
-    """
+
+@app.post("/api/mailcx/domains")
+async def api_mailcx_domains(
+    body: MailCxConfigBody, x_access_key: Optional[str] = Header(None)
+) -> Dict[str, Any]:
+    """Return the list of available mail.cx domains."""
+    _require_auth(x_access_key)
+    cfg = load_config(ROOT / "config.json")
+    domain = body.mailcx_domain or cfg.mailcx_domain or ""
+    try:
+        client = MailCxClient(domain=domain)
+        domains = client._get_domains()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Unable to contact mail.cx: {exc}")
+    return {
+        "ok": True,
+        "domains": domains,
+        "current_domain": cfg.mailcx_domain or "",
+    }
+
+
+class LitensiZoneBody(BaseModel):
     litensi_api_id: Optional[str] = None
     litensi_api_key: Optional[str] = None
     litensi_site: Optional[str] = None
@@ -290,74 +312,27 @@ class LitensiZonesBody(BaseModel):
 
 @app.post("/api/litensi/zones")
 async def api_litensi_zones(
-    body: LitensiZonesBody, x_access_key: Optional[str] = Header(None)
+    body: LitensiZoneBody, x_access_key: Optional[str] = Header(None)
 ) -> Dict[str, Any]:
-    """Return the list of Litensi mail zones for the given site.
-
-    Uses overrides from the request body when provided; otherwise falls back to
-    the credentials/site stored in config.json. Masked values (containing '*')
-    coming back from the UI are ignored (treated as "unchanged").
-    """
+    """Return Litensi zones (prices + stock) for the configured site."""
     _require_auth(x_access_key)
     cfg = load_config(ROOT / "config.json")
-
-    def _resolve(override: Optional[str], fallback: str, *, secret: bool = False) -> str:
-        if override is None:
-            return fallback or ""
-        s = override.strip()
-        if not s:
-            return fallback or ""
-        if secret and "*" in s:
-            return fallback or ""
-        return s
-
-    api_id = _resolve(body.litensi_api_id, cfg.litensi_api_id)
-    api_key = _resolve(body.litensi_api_key, cfg.litensi_api_key, secret=True)
-    site = _resolve(body.litensi_site, cfg.litensi_site)
-
+    api_id = body.litensi_api_id or cfg.litensi_api_id or ""
+    api_key = body.litensi_api_key or cfg.litensi_api_key or ""
+    site = body.litensi_site or cfg.litensi_site or ""
     if not api_id or not api_key:
-        raise HTTPException(status_code=400, detail="Litensi API ID / API Key is not configured")
+        raise HTTPException(status_code=400, detail="litensi_api_id and litensi_api_key are required")
     if not site:
-        raise HTTPException(status_code=400, detail="Site domain is not configured")
-
+        raise HTTPException(status_code=400, detail="litensi_site is required (e.g. github.com)")
     try:
-        client = LitensiClient(api_id, api_key, site, zone="")
+        from github_register.litensi import LitensiClient
+        client = LitensiClient(api_id=api_id, api_key=api_key, site=site)
         zones = client.prices()
-    except LitensiError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    except Exception as exc:  # network / unexpected
+        stock = [z for z in zones if float(z.get("stock") or 0) > 0]
+        cheapest = min(stock, key=lambda z: float(z.get("price") or 0))["zone"] if stock else ""
+    except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Unable to contact Litensi: {exc}")
-
-    # normalize: keep only known-useful fields, coerce numerics safely
-    def _num(v: Any) -> float:
-        try:
-            return float(v)
-        except (TypeError, ValueError):
-            return 0.0
-
-    normalized: List[Dict[str, Any]] = []
-    for z in zones:
-        if not isinstance(z, dict):
-            continue
-        normalized.append({
-            "zone": str(z.get("zone") or ""),
-            "price": _num(z.get("price")),
-            "stock": _num(z.get("stock")),
-            # keep original raw fields too for forward-compat display
-            "raw": z,
-        })
-
-    # pick cheapest in-stock zone (same rule as pick_zone) for UI highlight
-    in_stock = [z for z in normalized if z["stock"] > 0]
-    cheapest = min(in_stock, key=lambda z: z["price"])["zone"] if in_stock else ""
-
-    return {
-        "ok": True,
-        "site": site,
-        "zones": normalized,
-        "cheapest": cheapest,
-        "current_zone": cfg.litensi_zone or "",
-    }
+    return {"ok": True, "zones": zones, "site": site, "cheapest": cheapest}
 
 
 @app.get("/api/status")
