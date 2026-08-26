@@ -80,12 +80,15 @@ Set your local values in `config.json`. This file must never be committed.
 
 ```json
 {
+  "mail_provider": "mailcx",
+  "mailcx_domain": "",
   "litensi_api_id": "1234",
   "litensi_api_key": "your-api-key",
   "litensi_site": "github.com",
   "litensi_zone": "",
   "register_count": 1,
   "proxy": "",
+  "proxy_file": "",
   "headless": false,
   "delay_sec": 5.0,
   "max_username_tries": 6,
@@ -108,11 +111,14 @@ Set your local values in `config.json`. This file must never be committed.
 
 | Field | Description |
 | --- | --- |
-| `litensi_api_id` / `litensi_api_key` | Litensi API credentials. |
+| `mail_provider` | Mail backend: `mailcx` (free, default) or `litensi` (paid, more reliable). |
+| `mailcx_domain` | Mail.cx domain. Leave blank to auto-pick from available domains. |
+| `litensi_api_id` / `litensi_api_key` | Litensi API credentials (used when `mail_provider` is `litensi`). |
 | `litensi_site` | Sender domain in Litensi, for example `github.com`. |
 | `litensi_zone` | Mailbox zone. Leave blank to choose the cheapest in-stock zone. |
 | `register_count` | Accounts to process in one job. |
-| `proxy` | Optional proxy in `http://user:pass@host:port` format. |
+| `proxy` | Optional single proxy in `http://user:pass@host:port` format. |
+| `proxy_file` | Optional proxy pool file in the project root (one `scheme://user:pass@host:port` per line). Each account picks a random proxy; also settable via the web console upload. Takes precedence over `proxy`. |
 | `headless` | Runs without a browser window. `false` is easier to observe and often more stable. |
 | `delay_sec` | Delay between accounts. |
 | `max_username_tries` | Username conflict retry limit. |
