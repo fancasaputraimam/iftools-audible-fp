@@ -12,13 +12,13 @@ import {
   FileText,
   ListChecks,
   Play,
-  ScrollText,
   Square,
   Target,
   XCircle,
 } from "lucide-react";
 import { api } from "../api.js";
 import { Badge, Button, Card, Input } from "./ui.jsx";
+import LogViewer from "./LogViewer.jsx";
 
 const fmtTime = (ts) =>
   ts ? new Date(ts * 1000).toLocaleTimeString("id-ID", { hour12: false }) : "—";
@@ -30,10 +30,10 @@ const fmtDuration = (sec) => {
   const m = Math.floor((s % 3600) / 60);
   const r = s % 60;
   const pad = (n) => String(n).padStart(2, "0");
-  return h > 0 ? `${pad(h)}:${pad(m)}:${pad(r)}` : `${pad(m)}:${pad(r)}`;
+  return h > 0 ? `${pad(h)}.${pad(m)}.${pad(r)}` : `${pad(m)}.${pad(r)}`;
 };
 
-export default function StatusPanel({ onGotoLogs, onGotoAccounts }) {
+export default function StatusPanel({ onGotoAccounts }) {
   const [state, setState] = useState(null);
   const [count, setCount] = useState(1);
   const [busy, setBusy] = useState(false);
@@ -146,11 +146,6 @@ export default function StatusPanel({ onGotoLogs, onGotoAccounts }) {
         <div style={styles.heroText}>
           <div style={styles.eyebrow}>GITHUB ACCOUNT REGISTRATION</div>
           <h1 style={styles.heroTitle}>{statusInfo.title}</h1>
-          <p style={styles.heroDesc}>
-            <b style={{ color: "var(--accent)" }}>Camoufox</b> engine · Email
-            activation via <b style={{ color: "var(--accent)" }}>Litensi.id</b>{" "}
-            · Automatic username
-          </p>
         </div>
         <Badge
           tone={
@@ -185,10 +180,8 @@ export default function StatusPanel({ onGotoLogs, onGotoAccounts }) {
           small
         />
         <Stat
-          label={running ? "Elapsed" : "Finished"}
-          value={
-            running ? fmtDuration(elapsedSec) : fmtTime(state?.finished_at)
-          }
+          label={running ? "Elapsed" : "Duration"}
+          value={fmtDuration(elapsedSec)}
           icon={running ? Clock3 : Square}
           small
         />
@@ -304,14 +297,14 @@ export default function StatusPanel({ onGotoLogs, onGotoAccounts }) {
           >
             <Square size={15} /> Stop
           </Button>
-          <Button onClick={onGotoLogs}>
-            <ScrollText size={16} /> Live Log
-          </Button>
           <Button onClick={onGotoAccounts}>
             <FileText size={16} /> Accounts
           </Button>
         </div>
       </Card>
+
+      {/* live log — merged into this page */}
+      <LogViewer />
 
       {/* injected responsive CSS */}
       <style>{responsiveCSS}</style>

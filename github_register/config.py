@@ -18,6 +18,7 @@ class Config:
     litensi_zone: str = ""   # blank = auto-pick cheapest in-stock zone
     register_count: int = 1
     proxy: str = ""
+    proxy_file: str = ""     # proxy pool file in project root (one URL per line); overrides proxy
     headless: bool = False
     delay_sec: float = 5.0
     max_username_tries: int = 6
@@ -43,14 +44,7 @@ class Config:
     @classmethod
     def from_dict(cls, data: dict) -> "Config":
         known = set(cls.__dataclass_fields__)
-        # Backward compat: accept old litensi_* keys, map to new names
-        mapped = {}
-        for k, v in data.items():
-            if k.startswith("litensi_"):
-                # skip old litensi keys silently
-                continue
-            if k in known:
-                mapped[k] = v
+        mapped = {k: v for k, v in data.items() if k in known}
         return cls(**mapped)
 
 

@@ -51,6 +51,35 @@ def test_litensi_zone_pick():
     assert min(stock, key=lambda z: float(z.get("price") or 0))["zone"] == "c"
 
 
+def test_proxy_pool_pick():
+    from github_register.config import Config
+    from github_register.runner import _pick_proxy_url, load_proxy_pool
+
+    from github_register import runner
+
+    pool_name = "_test_pool_tmp.txt"
+    pool_path = runner.ROOT / pool_name
+    pool_path.write_text(
+        "# comment\n"
+        "http://u:p@1.1.1.1:8080\n"
+        "\n"
+        "not a proxy line\n"
+        "socks5://u:p@2.2.2.2:1080\n",
+        encoding="utf-8",
+    )
+    try:
+        pool = load_proxy_pool(pool_name)
+        assert pool == ["http://u:p@1.1.1.1:8080", "socks5://u:p@2.2.2.2:1080"], pool
+        cfg = Config(proxy="http://fallback:1@3.3.3.3:80", proxy_file=pool_name)
+        assert _pick_proxy_url(cfg) in pool
+        cfg2 = Config(proxy="http://fallback:1@3.3.3.3:80", proxy_file="")
+        assert _pick_proxy_url(cfg2) == "http://fallback:1@3.3.3.3:80"
+        cfg3 = Config(proxy="http://fallback:1@3.3.3.3:80", proxy_file="_missing_pool.txt")
+        assert _pick_proxy_url(cfg3) == "http://fallback:1@3.3.3.3:80"
+    finally:
+        pool_path.unlink(missing_ok=True)
+
+
 def test_parse_public_profile():
     random_user = {
         "results": [{

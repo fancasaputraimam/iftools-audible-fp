@@ -429,21 +429,23 @@
 }
 
 /* ============ Log viewer ============ */
-/* height (not min-height) so the terminal is bounded and scrolls internally */
+/* the terminal is a fixed, viewport-clamped box: its height never depends
+   on the number of log lines — overflow scrolls inside the terminal,
+   the page itself never grows because of logs */
 .log-layout {
   display: flex;
-  height: 100%;
-  min-height: 0;
   flex-direction: column;
   gap: 12px;
-  max-width: 1180px;
-  margin: 0 auto;
+  width: 100%;
+  min-height: 0;
 }
 .log-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; flex: none; }
 .log-toolbar-group { display: flex; align-items: center; gap: 10px; color: var(--text-muted); font-size: 12px; }
 .log-follow { display: flex; align-items: center; gap: 6px; cursor: pointer; accent-color: var(--accent); }
 .log-terminal {
-  flex: 1 1 0;
+  /* stable height regardless of line count (0 or 100+):
+     min 240px, ideal 42vh, max 520px — predictable on every viewport */
+  height: clamp(240px, 42vh, 520px);
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -454,10 +456,12 @@
   font-size: 12px;
   line-height: 1.75;
 }
-.log-line { color: var(--text-secondary); white-space: pre-wrap; overflow-wrap: anywhere; }
+.log-line { color: var(--text-secondary); white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
 .log-line.success { color: var(--success); }
 .log-line.danger { color: var(--danger); }
 .log-line.accent { color: var(--accent); }
+/* empty state inside the terminal must not exceed the fixed terminal height */
+.log-terminal .ui-empty-state { min-height: 0; height: 100%; padding: 16px; }
 
 .status-count-input { width: 72px; min-height: 30px; padding: 4px 7px; text-align: center; }
 .status-stepper-button { width: 30px; min-width: 30px; padding: 0; }
@@ -488,9 +492,8 @@
 
 @media(max-width:560px) {
   .log-toolbar { align-items: flex-start; flex-direction: column; }
-  /* page scrolls on mobile — give the terminal a usable fixed height */
-  .log-layout { height: auto; }
-  .log-terminal { min-height: 360px; max-height: 65vh; padding: 10px; }
+  /* clamp() already adapts the height — only tighten padding on small screens */
+  .log-terminal { padding: 10px; }
   .recovery-codes { grid-template-columns: 1fr; }
 }
 

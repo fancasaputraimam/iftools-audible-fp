@@ -1,4 +1,4 @@
-camoufox>=0.5.5
+camoufox[geoip]>=0.5.5
 playwright>=1.60
 requests>=2.32
 fastapi>=0.141

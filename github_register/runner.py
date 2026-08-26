@@ -5,6 +5,7 @@ import json
 import hashlib
 import logging
 import os
+import random
 import socket
 import socketserver
 import threading
@@ -144,6 +145,36 @@ def _parse_proxy(url: str) -> Optional[dict]:
         proxy["username"] = p.username
         proxy["password"] = p.password or ""
     return proxy
+
+
+def load_proxy_pool(name: str) -> list[str]:
+    """Valid proxy URLs from a pool file in project root (one per line, # comments ok)."""
+    path = ROOT / name.strip()
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    out: list[str] = []
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        p = urlsplit(line)
+        if p.hostname and (p.scheme or "http").lower() in ("http", "https", "socks4", "socks5"):
+            out.append(line)
+    return out
+
+
+def _pick_proxy_url(cfg: Config, log=None) -> str:
+    """Effective proxy URL: random pick from proxy_file pool, else the single URL."""
+    name = (getattr(cfg, "proxy_file", "") or "").strip()
+    if name:
+        pool = load_proxy_pool(name)
+        if pool:
+            return random.choice(pool)
+        if log:
+            log(f"[!] proxy file {name!r} missing/empty — falling back to single proxy URL")
+    return (cfg.proxy or "").strip()
 
 
 def _proxy_is_socks(proxy: Optional[dict]) -> bool:
@@ -1031,7 +1062,8 @@ def _browser_ctx_options(cfg: Config, log=None) -> dict:
         opts["os"] = "windows"
     # sticky session FIRST: one stable exit IP for the whole job — rotating
     # IPs mid-session (DataImpulse default) are an instant DataDome flag
-    proxy_url = _ensure_sticky_proxy(cfg.proxy, log=log) if (cfg.proxy or "").strip() else ""
+    raw_proxy = _pick_proxy_url(cfg, log=log)
+    proxy_url = _ensure_sticky_proxy(raw_proxy, log=log) if raw_proxy else ""
     proxy = _parse_proxy(proxy_url) if proxy_url else None
     if proxy:
         if _proxy_needs_bridge(proxy):
@@ -2006,8 +2038,9 @@ def register_one(
 
     try:
         password = generate_password()
-        hard_left = int(getattr(cfg, "proxy_hard_block_retries", 0) or 0) if cfg.proxy else 0
-        rate_left = int(getattr(cfg, "proxy_rate_limit_retries", 0) or 0) if cfg.proxy else 0
+        has_proxy = bool((cfg.proxy or "").strip() or (getattr(cfg, "proxy_file", "") or "").strip())
+        hard_left = int(getattr(cfg, "proxy_hard_block_retries", 0) or 0) if has_proxy else 0
+        rate_left = int(getattr(cfg, "proxy_rate_limit_retries", 0) or 0) if has_proxy else 0
         while True:
             _raise_if_cancelled(stop)
             try:

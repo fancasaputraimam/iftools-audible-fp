@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import {
   Activity,
-  BookOpenText,
   Boxes,
   ExternalLink,
   FolderGit2,
@@ -17,7 +16,6 @@ import {
 } from "lucide-react";
 import { api, getToken, setToken } from "./api.js";
 import StatusPanel from "./components/StatusPanel.jsx";
-import LogViewer from "./components/LogViewer.jsx";
 import ConfigPanel from "./components/ConfigPanel.jsx";
 import AccountsPanel from "./components/AccountsPanel.jsx";
 import {
@@ -31,7 +29,6 @@ import {
 
 const NAV = [
   { id: "status", label: "Status", icon: Activity },
-  { id: "log", label: "Live Log", icon: BookOpenText },
   { id: "config", label: "Config", icon: Settings },
   { id: "accounts", label: "Accounts", icon: Boxes },
 ];
@@ -69,7 +66,10 @@ export default function App() {
   }, [auth]);
 
   function loadGroups() {
-    api.get("/api/groups").then((d) => setGroups(d.groups || [])).catch(() => {});
+    api
+      .get("/api/groups")
+      .then((d) => setGroups(d.groups || []))
+      .catch(() => {});
   }
   useEffect(() => {
     if (auth === null) return undefined;
@@ -161,7 +161,6 @@ export default function App() {
 
   const ActivePanel = {
     status: StatusPanel,
-    log: LogViewer,
     config: ConfigPanel,
     accounts: AccountsPanel,
   }[tab];
@@ -310,7 +309,6 @@ export default function App() {
       </aside>
       <main className="app-main" key={tab}>
         <ActivePanel
-          onGotoLogs={() => setTab("log")}
           onGotoAccounts={() => {
             setTab("accounts");
             setGroup("");
@@ -327,7 +325,10 @@ export default function App() {
         title="Group baru"
         footer={
           <>
-            <Button onClick={() => setGroupCreateOpen(false)} disabled={groupBusy}>
+            <Button
+              onClick={() => setGroupCreateOpen(false)}
+              disabled={groupBusy}
+            >
               Cancel
             </Button>
             <Button
@@ -363,14 +364,18 @@ export default function App() {
         footer={
           <>
             <Button onClick={() => setGroupDelete(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={doDeleteGroup} disabled={groupBusy}>
+            <Button
+              variant="destructive"
+              onClick={doDeleteGroup}
+              disabled={groupBusy}
+            >
               <X size={15} /> Delete
             </Button>
           </>
         }
       >
         Group <strong>{groupDelete}</strong> akan dihapus. Akun di dalamnya
-        tidak ikut terhapus — hanya dikeluarkan dari group.
+        tidak ikut terhapus, hanya dikeluarkan dari group.
       </Dialog>
     </div>
   );

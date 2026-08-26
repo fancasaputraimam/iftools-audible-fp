@@ -6,6 +6,7 @@ import asyncio
 import collections
 import hashlib
 import json
+import logging
 import os
 import secrets
 import sys
@@ -14,6 +15,7 @@ import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Deque, Dict, List, Optional
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
@@ -30,7 +32,7 @@ if str(ROOT) not in sys.path:
 
 from github_register.config import Config, load_config
 from github_register.mailcx import MailCxClient, MailCxError
-from github_register.runner import run_job, silence_playwright_noise
+from github_register.runner import load_proxy_pool, run_job, silence_playwright_noise
 
 silence_playwright_noise()  # hide TargetClosedError spam when browsers close
 
@@ -77,6 +79,36 @@ _job_state: Dict[str, Any] = {
 app = FastAPI(title="GitHub Register", version="1.0.0")
 
 
+class _QuietSSECancellation(logging.Filter):
+    """Suppress "Exception in ASGI application" tracebacks that are just
+    CancelledError from tasks being torn down at shutdown (Ctrl+C).
+
+    Two shapes occur:
+      * uvicorn's http protocol logs CancelledError with exc_info when a
+        StreamingResponse task (e.g. our /api/logs SSE stream) is cancelled;
+      * starlette's lifespan handler formats CancelledError into a plain-text
+        traceback message (no exc_info) and uvicorn logs it as an ERROR.
+    Neither is an error — it is normal shutdown noise.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno != logging.ERROR:
+            return True
+        if record.exc_info:
+            exc = record.exc_info[1]
+            if isinstance(exc, asyncio.CancelledError):
+                return False
+            if isinstance(exc, BaseExceptionGroup) and not exc.split(asyncio.CancelledError)[1]:
+                return False  # every sub-exception is a CancelledError
+        msg = record.getMessage()
+        if "CancelledError" in msg and "Traceback (most recent call last)" in msg:
+            return False  # formatted CancelledError traceback text
+        return True
+
+
+logging.getLogger("uvicorn.error").addFilter(_QuietSSECancellation())
+
+
 class StopController:
     def __init__(self) -> None:
         self._stop = False
@@ -114,6 +146,8 @@ def _public_config() -> Dict[str, Any]:
     for key in SECRET_FIELDS:
         raw = getattr(cfg, key, "")
         masked[f"has_{key}"] = bool(str(raw or "").strip())
+    pf = (getattr(cfg, "proxy_file", "") or "").strip()
+    masked["proxy_file_count"] = len(load_proxy_pool(pf)) if pf else 0
     return masked
 
 
@@ -157,6 +191,7 @@ class ConfigBody(BaseModel):
     litensi_zone: Optional[str] = None
     register_count: Optional[int] = None
     proxy: Optional[str] = None
+    proxy_file: Optional[str] = None
     headless: Optional[bool] = None
     delay_sec: Optional[float] = None
     max_username_tries: Optional[int] = None
@@ -318,7 +353,10 @@ async def api_litensi_zones(
     _require_auth(x_access_key)
     cfg = load_config(ROOT / "config.json")
     api_id = body.litensi_api_id or cfg.litensi_api_id or ""
-    api_key = body.litensi_api_key or cfg.litensi_api_key or ""
+    api_key = body.litensi_api_key or ""
+    if "*" in api_key:  # masked placeholder from GET — fall back to stored key
+        api_key = ""
+    api_key = api_key or cfg.litensi_api_key or ""
     site = body.litensi_site or cfg.litensi_site or ""
     if not api_id or not api_key:
         raise HTTPException(status_code=400, detail="litensi_api_id and litensi_api_key are required")
@@ -333,6 +371,46 @@ async def api_litensi_zones(
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Unable to contact Litensi: {exc}")
     return {"ok": True, "zones": zones, "site": site, "cheapest": cheapest}
+
+
+PROXY_SCHEMES = ("http", "https", "socks4", "socks5")
+
+
+def _valid_proxy_line(line: str) -> bool:
+    p = urlsplit(line)
+    return bool(p.hostname) and (p.scheme or "http").lower() in PROXY_SCHEMES
+
+
+@app.post("/api/proxy/upload")
+async def api_proxy_upload(
+    request: Request, x_access_key: Optional[str] = Header(None)
+) -> Dict[str, Any]:
+    """Save an uploaded proxy list as the active pool (proxies.txt, one URL per line).
+
+    Body: raw file content (text/plain) — no multipart needed.
+    """
+    _require_auth(x_access_key)
+    raw = (await request.body()).decode("utf-8", errors="replace")
+    valid: List[str] = []
+    seen: set = set()
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or line in seen or not _valid_proxy_line(line):
+            continue
+        seen.add(line)
+        valid.append(line)
+    if not valid:
+        raise HTTPException(
+            status_code=400,
+            detail="no valid proxies found (one per line: scheme://user:pass@host:port)",
+        )
+    pool_name = "proxies.txt"
+    (ROOT / pool_name).write_text("\n".join(valid) + "\n", encoding="utf-8")
+    cfg = load_config(ROOT / "config.json")
+    cfg.proxy_file = pool_name
+    _save_config(cfg)
+    _append_log(f"[*] proxy pool uploaded: {len(valid)} proxies -> {pool_name}")
+    return {"ok": True, "proxy_file": pool_name, "count": len(valid), "config": _public_config()}
 
 
 @app.get("/api/status")
@@ -379,18 +457,23 @@ async def api_logs(
 
     async def event_stream():
         last = after
-        while True:
-            if await request.is_disconnected():
-                break
-            with _log_cond:
-                buf = list(_log_buffer)
-                seq = _log_seq
-            if seq > last:
-                start_idx = max(0, len(buf) - (seq - last))
-                for line in buf[start_idx:]:
-                    yield f"data: {line}\n\n"
-                last = seq
-            await asyncio.sleep(0.5)
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                with _log_cond:
+                    buf = list(_log_buffer)
+                    seq = _log_seq
+                if seq > last:
+                    start_idx = max(0, len(buf) - (seq - last))
+                    for line in buf[start_idx:]:
+                        yield f"data: {line}\n\n"
+                    last = seq
+                await asyncio.sleep(0.5)
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            # client went away / server shutdown — exit the stream quietly;
+            # uvicorn would otherwise log "Exception in ASGI application"
+            pass
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 

@@ -28,11 +28,23 @@ async function request(method, url, body) {
   return data
 }
 
+async function uploadFile(url, file) {
+  const headers = { 'Content-Type': 'text/plain' }
+  const token = getToken()
+  if (token) headers['X-Access-Key'] = token
+  const resp = await fetch(url, { method: 'POST', headers, body: file })
+  if (resp.status === 401 || resp.status === 403) throw new Error('unauthorized')
+  const data = await resp.json().catch(() => ({}))
+  if (!resp.ok || data.ok === false) throw new Error(data.detail || data.message || `HTTP ${resp.status}`)
+  return data
+}
+
 export const api = {
   get: (url) => request('GET', url),
   post: (url, body) => request('POST', url, body),
   put: (url, body) => request('PUT', url, body),
   del: (url, body) => request('DELETE', url, body),
+  upload: uploadFile,
 }
 
 export async function subscribeLogs(after, onLine) {
