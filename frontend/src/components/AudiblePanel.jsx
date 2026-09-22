@@ -48,14 +48,43 @@ const fmtDuration = (sec) => {
   return h > 0 ? `${pad(h)}.${pad(m)}.${pad(r)}` : `${pad(m)}.${pad(r)}`
 }
 
-function StatusChip({ s }) {
-  const ok = s === 'ok'
-  const bad = s === 'fail' || s === 'error'
-  return (
-    <Badge tone={ok ? 'success' : bad ? 'danger' : 'warning'}>
-      {ok ? 'Hit' : bad ? 'Bad' : 'Check'}
-    </Badge>
-  )
+function StatusChip({ s, note }) {
+  if (s === 'ok') {
+    // Show specific secondary type when available
+    if (note) {
+      const n = note.toLowerCase()
+      if (n.startsWith('v2l')) return <Badge tone="success">v2l ✓</Badge>
+      if (n.startsWith('dcq:zip')) return <Badge tone="success">DCQ ZIP</Badge>
+      if (n.startsWith('dcq:name')) return <Badge tone="success">DCQ Name</Badge>
+      if (n.startsWith('dcq:phone')) return <Badge tone="success">DCQ Phone</Badge>
+      if (n.startsWith('dcq:')) return <Badge tone="success">DCQ</Badge>
+      if (n.startsWith('cc:')) return <Badge tone="success">CC Expiry</Badge>
+      if (n.startsWith('push_notif')) return <Badge tone="success">Push</Badge>
+      if (n.startsWith('otp_sms') || n.startsWith('otp_email')) return <Badge tone="success">OTP ✓</Badge>
+      if (n.startsWith('otp_wa')) return <Badge tone="success">OTP WA ✓</Badge>
+    }
+    return <Badge tone="success">Hit</Badge>
+  }
+  if (s === 'fail' || s === 'error') {
+    if (note) {
+      const n = note.toLowerCase()
+      if (n.includes('no_otp')) return <Badge tone="warning">No OTP</Badge>
+      if (n.includes('not_amazon')) return <Badge tone="muted">Not Amazon</Badge>
+      if (n.includes('amazon_error')) return <Badge tone="warning">Amz Err</Badge>
+      if (n.includes('no_forgot')) return <Badge tone="muted">No URL</Badge>
+    }
+    return <Badge tone="danger">Bad</Badge>
+  }
+  // status=check = secondary verification type shown in note
+  if (note) {
+    const n = note.toLowerCase()
+    if (n.startsWith('v2l')) return <Badge tone="success">v2l ✓</Badge>
+    if (n.startsWith('dcq')) return <Badge tone="info">DCQ</Badge>
+    if (n.startsWith('cc:')) return <Badge tone="warning">CC</Badge>
+    if (n.startsWith('push_notif')) return <Badge tone="muted">Push</Badge>
+    if (n.startsWith('otp_sms')) return <Badge tone="muted">OTP SMS</Badge>
+  }
+  return <Badge tone="warning">Check</Badge>
 }
 
 function countParsed(text) {
@@ -74,6 +103,7 @@ export default function AudiblePanel() {
   const [speed, setSpeed] = useState('normal')
   const [proxyFile, setProxyFile] = useState('')
   const [proxyName, setProxyName] = useState('')
+  const [proxySample, setProxySample] = useState('')
   const [workers, setWorkers] = useState('')
   const [limit, setLimit] = useState('')
   const [running, setRunning] = useState(false)
@@ -201,7 +231,8 @@ export default function AudiblePanel() {
     const text = await f.text()
     setAccounts(text)
     setFileName(f.name)
-    showToast(`${f.name} loaded (${countParsed(text)} accounts)`)
+    const n = countParsed(text)
+    showToast(`${f.name} — ${n} account${n !== 1 ? 's' : ''} parsed`)
   }
 
   async function onPickProxies(e) {
@@ -210,7 +241,11 @@ export default function AudiblePanel() {
     const text = await f.text()
     setProxyFile(text)
     setProxyName(f.name)
-    showToast(`${f.name} loaded (${countParsed(text)} proxies)`)
+    const n = countParsed(text)
+    // sample first non-comment line for format hint
+    const sample = text.split('\n').find((l) => l.trim() && !l.startsWith('#'))?.trim() || ''
+    showToast(`${f.name} — ${n} proxy${n !== 1 ? 'ies' : ''} loaded`)
+    setProxySample(sample)
   }
 
   async function startJob() {
@@ -289,6 +324,14 @@ export default function AudiblePanel() {
   const pct = target ? Math.min(100, Math.round((total / target) * 100)) : 0
   const done = hitCount + failCount
 
+  // Break down hits by secondary type
+  const v2lCount = results.filter((r) => r.note?.toLowerCase().startsWith('v2l')).length
+  const dcqCount = results.filter((r) => r.note?.toLowerCase().startsWith('dcq')).length
+  const otpCount = results.filter((r) => {
+    const n = r.note?.toLowerCase() || ''
+    return (n.startsWith('otp_sms') || n.startsWith('otp_email')) && r.status === 'ok'
+  }).length
+
   const elapsedSec = (() => {
     if (!status?.started_at) return 0
     const end = status?.finished_at ? status.finished_at * 1000 : now
@@ -358,6 +401,16 @@ export default function AudiblePanel() {
             small
           />
         </div>
+        {hitCount > 0 && (
+          <div style={styles.hitBreakdown}>
+            {v2lCount > 0 && <Badge tone="success">v2l: {v2lCount}</Badge>}
+            {dcqCount > 0 && <Badge tone="info">DCQ: {dcqCount}</Badge>}
+            {otpCount > 0 && <Badge tone="muted">OTP SMS: {otpCount}</Badge>}
+            {hitCount - v2lCount - dcqCount - otpCount > 0 && (
+              <Badge tone="muted">Other: {hitCount - v2lCount - dcqCount - otpCount}</Badge>
+            )}
+          </div>
+        )}
       </Card>
 
       {/* Progress */}
@@ -372,6 +425,11 @@ export default function AudiblePanel() {
           </div>
           <div style={styles.progressTrack}>
             <div
+              role="progressbar"
+              aria-valuenow={pct}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label="Checker progress"
               style={{
                 ...styles.progressFill,
                 width: `${pct}%`,
@@ -396,123 +454,177 @@ export default function AudiblePanel() {
         </Card>
       )}
 
-      {/* Controls: files + speed + workers/limit + actions */}
-      <Card className="status-controls">
-        <div className="status-control-block">
-          <span className="status-control-label">Accounts file</span>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            <label className="ui-button ui-button-sm" style={{ cursor: 'pointer' }}>
-              <FolderOpen size={15} /> Choose a .txt file
-              <input type="file" accept=".txt" onChange={onPickAccounts} hidden />
-            </label>
-            {fileName && <Badge tone="accent">{fileName}</Badge>}
-            {accounts && (
-              <span style={{ fontSize: 12, color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>
-                {countParsed(accounts)} parsed
-              </span>
-            )}
+      {/* Controls: step-based layout — ① Upload → ② Configure → ③ Start */}
+      <Card style={{ padding: 0, overflow: 'hidden' }}>
+        <div className="ui-card-strip">
+          <ListChecks size={15} />
+          <strong>Configure Run</strong>
+        </div>
+        <div className="run-steps">
+
+          {/* Step 1: Files */}
+          <div className="run-step">
+            <div className="run-step-num">1</div>
+            <div className="run-step-body">
+              <div className="run-step-title">Upload files</div>
+              <div className="run-step-fields">
+                <div className="run-field-group">
+                  <div className="run-field-label">
+                    Accounts <span className="run-field-required">required</span>
+                  </div>
+                  <label className="run-file-btn">
+                    <FolderOpen size={14} />
+                    <span>{fileName || 'Choose accounts.txt'}</span>
+                    <input type="file" accept=".txt" onChange={onPickAccounts} hidden />
+                  </label>
+                  {accounts ? (
+                    <div className="run-field-hint ok">
+                      <code>{countParsed(accounts)} accounts · format: email:password</code>
+                    </div>
+                  ) : (
+                    <div className="run-field-hint">One <code>email:password</code> per line</div>
+                  )}
+                </div>
+                <div className="run-field-group">
+                  <div className="run-field-label">
+                    Proxies <span className="run-field-required">required</span>
+                  </div>
+                  <label className="run-file-btn">
+                    <Upload size={14} />
+                    <span>{proxyName || 'Choose proxies.txt'}</span>
+                    <input type="file" accept=".txt" onChange={onPickProxies} hidden />
+                  </label>
+                  {proxyFile ? (
+                    <div className="run-field-hint ok">
+                      <code>{countParsed(proxyFile)} proxies{proxySample ? ` · ${proxySample.slice(0, 36)}…` : ''}</code>
+                    </div>
+                  ) : (
+                    <div className="run-field-hint">Format: <code>http://user:pass@host:port</code></div>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
 
-        <div className="status-control-block">
-          <span className="status-control-label">Proxy list (required)</span>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            <label className="ui-button ui-button-sm" style={{ cursor: 'pointer' }}>
-              <Upload size={15} /> Choose a .txt file
-              <input type="file" accept=".txt" onChange={onPickProxies} hidden />
-            </label>
-            {proxyName && <Badge tone="accent">{proxyName}</Badge>}
+          <div className="run-step-divider" />
+
+          {/* Step 2: Speed + workers */}
+          <div className="run-step">
+            <div className="run-step-num">2</div>
+            <div className="run-step-body">
+              <div className="run-step-title">Configure</div>
+              <div className="run-step-fields">
+                <div className="run-field-group">
+                  <div className="run-field-label">Speed</div>
+                  <div className="glass-segmented" role="group" aria-label="Speed selection">
+                    {SPEEDS.map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        className={speed === s.id ? 'active' : ''}
+                        aria-pressed={speed === s.id}
+                        onClick={() => setSpeed(s.id)}
+                      >
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="run-field-hint">
+                    {speed === 'maximum' ? '⚠ Maximum needs stable proxies' : speed === 'slow' ? 'Best accuracy, ~1 acc/min' : speed === 'normal' ? '~4–6 acc/min, recommended' : '~8–10 acc/min'}
+                  </div>
+                </div>
+                <div className="run-field-group">
+                  <label htmlFor="audible-workers" className="run-field-label">
+                    Workers
+                    <span className="run-field-tooltip" title="Use 1 for maximum accuracy — rotating proxy can assign same IP to parallel workers">ⓘ</span>
+                  </label>
+                  <Input
+                    id="audible-workers"
+                    type="number"
+                    min="1"
+                    max="16"
+                    placeholder="Auto"
+                    value={workers}
+                    onChange={(e) => setWorkers(e.target.value)}
+                    className="status-count-input"
+                    autoComplete="off"
+                    name="audible-workers-x"
+                    data-lpignore="true"
+                    data-1p-ignore="true"
+                  />
+                  <div className="run-field-hint">1 = best accuracy</div>
+                </div>
+                <div className="run-field-group">
+                  <label htmlFor="audible-limit" className="run-field-label">
+                    Limit
+                    <span className="run-field-tooltip" title="Only check the first N accounts and skip the rest">ⓘ</span>
+                  </label>
+                  <Input
+                    id="audible-limit"
+                    type="number"
+                    min="1"
+                    placeholder="All"
+                    value={limit}
+                    onChange={(e) => setLimit(e.target.value)}
+                    className="status-count-input"
+                    autoComplete="off"
+                    name="audible-limit-x"
+                    data-lpignore="true"
+                    data-1p-ignore="true"
+                  />
+                  <div className="run-field-hint">Leave blank for all</div>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
 
-        <div className="status-control-block">
-          <span className="status-control-label">Speed</span>
-          <div className="glass-segmented">
-            {SPEEDS.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                className={speed === s.id ? 'active' : ''}
-                onClick={() => setSpeed(s.id)}
-              >
-                {s.label}
-              </button>
-            ))}
+          <div className="run-step-divider" />
+
+          {/* Step 3: Actions */}
+          <div className="run-step">
+            <div className="run-step-num">3</div>
+            <div className="run-step-body">
+              <div className="run-step-title">Run</div>
+              <div className="status-actions" style={{ flexWrap: 'wrap' }}>
+                {running ? (
+                  <Button
+                    variant="destructive"
+                    className="status-action-stop"
+                    onClick={() => setStopOpen(true)}
+                  >
+                    <Pause size={15} /> Stop
+                  </Button>
+                ) : (
+                  <Button
+                    variant="primary"
+                    className="status-action-primary"
+                    onClick={startJob}
+                    disabled={busy || !accounts || !proxyFile}
+                    title={!accounts ? 'Load accounts.txt first' : !proxyFile ? 'Load proxies.txt first' : ''}
+                  >
+                    {busy ? <Spinner /> : <Play size={16} />} Start checker
+                  </Button>
+                )}
+                <Button
+                  className="status-action-nav"
+                  onClick={() => download('hits')}
+                  disabled={!hitCount}
+                  title="Download OTP/v2l/DCQ hits only"
+                >
+                  <Download size={15} /> Hits ({hitCount})
+                </Button>
+                <Button
+                  className="status-action-nav"
+                  onClick={() => download('all')}
+                  disabled={!total}
+                  title="Download all results"
+                >
+                  <FileText size={15} /> All ({total})
+                </Button>
+              </div>
+            </div>
           </div>
-        </div>
 
-        <div className="status-control-block">
-          <span className="status-control-label">Workers</span>
-          <Input
-            type="number"
-            min="1"
-            max="16"
-            placeholder="Auto"
-            value={workers}
-            onChange={(e) => setWorkers(e.target.value)}
-            className="status-count-input"
-            autoComplete="off"
-            autoCorrect="off"
-            autoCapitalize="off"
-            spellCheck="false"
-            name="audible-workers"
-            data-lpignore="true"
-            data-1p-ignore="true"
-          />
-        </div>
-
-        <div className="status-control-block">
-          <span className="status-control-label">Limit (first N)</span>
-          <Input
-            type="number"
-            min="1"
-            placeholder="All"
-            value={limit}
-            onChange={(e) => setLimit(e.target.value)}
-            className="status-count-input"
-            autoComplete="off"
-            autoCorrect="off"
-            autoCapitalize="off"
-            spellCheck="false"
-            name="audible-limit"
-            data-lpignore="true"
-            data-1p-ignore="true"
-          />
-        </div>
-
-        <div className="status-actions">
-          {running ? (
-            <Button
-              variant="destructive"
-              className="status-action-stop"
-              onClick={() => setStopOpen(true)}
-            >
-              <Pause size={15} /> Stop
-            </Button>
-          ) : (
-            <Button
-              variant="primary"
-              className="status-action-primary"
-              onClick={startJob}
-              disabled={busy}
-            >
-              {busy ? <Spinner /> : <Play size={16} />} Start checker
-            </Button>
-          )}
-          <Button
-            className="status-action-nav"
-            onClick={() => download('hits')}
-            disabled={!hitCount}
-          >
-            <Download size={15} /> Hits ({hitCount})
-          </Button>
-          <Button
-            className="status-action-nav"
-            onClick={() => download('all')}
-            disabled={!total}
-          >
-            <FileText size={15} /> All ({total})
-          </Button>
         </div>
       </Card>
 
@@ -553,7 +665,7 @@ export default function AudiblePanel() {
                       </button>
                     </td>
                     <td data-label="Status">
-                      <StatusChip s={r.status} />
+                      <StatusChip s={r.status} note={r.note} />
                     </td>
                     <td data-label="Note">
                       <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{r.note || '—'}</span>
@@ -645,7 +757,7 @@ export default function AudiblePanel() {
       </Dialog>
 
       {toast && (
-        <div className="toast" style={{ padding: '12px 26px', fontSize: 14 }}>
+        <div className="toast" style={{ padding: '12px 26px', fontSize: 14 }} role="status" aria-live="polite">
           {toast}
         </div>
       )}
@@ -717,6 +829,13 @@ const styles = {
     maxWidth: 520,
   },
   metricsCard: { padding: 0, overflow: 'hidden' },
+  hitBreakdown: {
+    display: 'flex',
+    gap: 6,
+    flexWrap: 'wrap',
+    padding: '10px 20px 14px',
+    borderTop: '1px solid var(--border)',
+  },
   progressCard: { padding: '16px 20px' },
   progressHead: {
     display: 'flex',
@@ -736,7 +855,9 @@ const styles = {
   progressFill: {
     height: '100%',
     borderRadius: 4,
-    transition: 'width 0.5s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s',
+    transition: 'background 0.3s',
+    willChange: 'transform',
+    transformOrigin: 'left center',
   },
   progressLegend: {
     display: 'flex',

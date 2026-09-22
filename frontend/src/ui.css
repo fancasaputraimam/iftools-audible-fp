@@ -417,7 +417,8 @@
   border-radius: var(--r-lg);
   background: var(--surface);
   box-shadow: var(--shadow-md);
-  transition: width 180ms ease-out;
+  /* avoid layout-thrash: clip content rather than animating width */
+  transition: opacity 180ms ease-out;
 }
 
 .app-sidebar-top {
@@ -1175,6 +1176,9 @@
   font-size: 14px;
   color: var(--text-2);
   vertical-align: middle;
+  max-width: 280px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .caret { font-size: 10px; line-height: 1; opacity: 0.75; }
 .export-wrap { position: relative; display: inline-flex; }
@@ -1468,3 +1472,152 @@
   padding: 0 var(--sp-lg) var(--sp-lg);
 }
 .tool-card-foot .ui-badge { text-transform: none; letter-spacing: 0.2px; }
+
+/* ============================================================
+   Run Steps — step-based configure flow (① Upload → ② Configure → ③ Start)
+   ============================================================ */
+.run-steps {
+  display: flex;
+  flex-direction: column;
+}
+.run-step {
+  display: flex;
+  gap: 16px;
+  padding: 20px 24px;
+  align-items: flex-start;
+}
+.run-step-num {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-full);
+  background: var(--navy);
+  color: #fff;
+  font-family: var(--font-head);
+  font-size: 13px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  margin-top: 2px;
+}
+.run-step-body { flex: 1 1 0; min-width: 0; }
+.run-step-title {
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 12px;
+}
+.run-step-divider {
+  height: 1px;
+  margin: 0 24px;
+  background: var(--border);
+}
+.run-step-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 24px;
+  align-items: flex-start;
+}
+.run-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.run-field-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  color: var(--text-2);
+  text-transform: none;
+}
+.run-field-required {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--danger-deep);
+  background: var(--danger-soft);
+  padding: 1px 5px;
+  border-radius: var(--r-sm);
+}
+.run-file-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 6px 14px;
+  border: 1.5px dashed var(--border-strong);
+  border-radius: var(--r);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 150ms ease-out, background 150ms ease-out, color 150ms ease-out;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.run-file-btn:hover { border-color: var(--navy); background: var(--surface); color: var(--text); }
+.run-file-btn:focus-within { border-color: var(--navy); border-style: solid; outline: none; box-shadow: var(--ring); }
+.run-file-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.run-field-hint {
+  font-size: 11.5px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  line-height: 1.45;
+}
+.run-field-hint code {
+  font-size: 11px;
+  color: var(--text-3);
+}
+.run-field-hint.ok { color: var(--success-deep); }
+.run-field-hint.ok code { color: var(--success-deep); }
+.run-field-tooltip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--r-full);
+  font-size: 11px;
+  color: var(--text-3);
+  cursor: help;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  flex: none;
+  transition: background 100ms ease-out, color 100ms ease-out;
+}
+.run-field-tooltip:hover { background: var(--navy); color: #fff; border-color: var(--navy); }
+
+@media (max-width: 640px) {
+  .run-step { padding: 14px 16px; }
+  .run-step-fields { gap: 12px; }
+  .run-field-group { width: 100%; }
+  .run-file-btn { max-width: 100%; }
+}
+
+/* ============================================================
+   Login form: proper visual labels
+   ============================================================ */
+.login-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+}
+.login-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  letter-spacing: 0.3px;
+}

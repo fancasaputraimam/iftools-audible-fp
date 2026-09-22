@@ -235,6 +235,8 @@ _AUDIBLE_STATE: Dict[str, Any] = {
     "fails": 0,
     "results": [],
     "error": "",
+    "started_at": None,
+    "finished_at": None,
 }
 _AUDIBLE_LOCK = threading.Lock()
 _AUDIBLE_STOP = threading.Event()
@@ -258,6 +260,8 @@ def _audible_reset(total: int) -> None:
             fails=0,
             results=[],
             error="",
+            started_at=time.time(),
+            finished_at=None,
         )
         _AUDIBLE_STOP.clear()
 
@@ -293,17 +297,25 @@ def _run_audible(
         proxy_path = None
         if proxy_file:
             proxy_path = tmpdir / "proxies.txt"
-            # copy the CONTENT of the proxy list — writing the source path
-            # itself made every proxy line invalid, so the runner fell back
-            # to the blocked datacenter IP and every account failed.
-            src = Path(proxy_file)
-            if src.is_file():
-                with open(src, "r", encoding="utf-8", errors="replace") as fh:
-                    data = fh.read()
+            # proxy_file may be either raw content (from browser upload) or a path.
+            # Guard Path() against OS filename-too-long (Errno 36) on large content strings.
+            is_path = False
+            if len(proxy_file) < 512 and "\n" not in proxy_file:
+                try:
+                    src = Path(proxy_file)
+                    is_path = src.is_file()
+                except OSError:
+                    is_path = False
+            if is_path:
                 with open(proxy_path, "w", encoding="utf-8") as fh:
-                    fh.write(data)
+                    fh.write(open(src, "r", encoding="utf-8", errors="replace").read())  # type: ignore[name-defined]
+                _append_log(f"[*] audible: proxy list loaded from file ({src.name})")  # type: ignore[name-defined]
             else:
-                _append_log(f"[-] audible: proxy file not found: {proxy_file}")
+                # Raw content sent from browser
+                with open(proxy_path, "w", encoding="utf-8") as fh:
+                    fh.write(proxy_file)
+                n = len([l for l in proxy_file.splitlines() if l.strip()])
+                _append_log(f"[*] audible: proxy list written from content ({n} lines)")
 
         script = Path(__file__).resolve().parent.parent / "audible_fp_runner.py"
         cmd = [
@@ -358,13 +370,7 @@ def _run_audible(
         with _AUDIBLE_LOCK:
             _AUDIBLE_STATE["error"] = str(exc)
     finally:
-        # Drop the scratch dir (batch/proxies/results copies) so runs do not
-        # leak one temp directory each into /tmp forever.
-        try:
-            shutil.rmtree(tmpdir, ignore_errors=True)
-        except Exception:
-            pass
-        # Carry over hits to the persistent results file used by the tool.
+        # Carry over hits to the persistent results file BEFORE cleaning up tmpdir.
         try:
             src = tmpdir / "results.txt"
             if src.exists():
@@ -374,9 +380,15 @@ def _run_audible(
                     fh.write(data)
         except Exception:  # noqa: BLE001
             pass
+        # Now safe to remove scratch dir.
+        try:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+        except Exception:
+            pass
         with _AUDIBLE_LOCK:
             _AUDIBLE_STATE["running"] = False
             _AUDIBLE_STATE["done"] = True
+            _AUDIBLE_STATE["finished_at"] = time.time()
         _append_log("[*] audible: job finished")
 
 
@@ -405,7 +417,10 @@ def _audible_parse_line(line: str) -> Optional[Tuple[str, str, str, str]]:
     note_l = note.lower()
     if "fail" in note_l or "bad" in note_l or "error" in note_l:
         status = "fail"
-    elif "otp" in note_l or "hit" in note_l or note_l.startswith("ok"):
+    elif ("otp_sms" in note_l or "otp_wa" in note_l or "otp_email" in note_l or note_l == "otp"
+           or "hit" in note_l or note_l.startswith("ok")
+           or note_l in ("v2l",) or note_l.startswith("dcq") or note_l.startswith("cc:")
+           or note_l.startswith("push_notif")):
         status = "ok"
     else:
         status = "check"
@@ -500,9 +515,12 @@ async def api_audible_accounts(
             note_l = note.lower()
             status = (
                 "fail"
-                if ("fail" in note_l or "bad" in note_l)
+                if ("fail" in note_l or "bad" in note_l or "error" in note_l)
                 else "ok"
-                if ("otp" in note_l or "hit" in note_l)
+                if ("otp_sms" in note_l or "otp_wa" in note_l or "otp_email" in note_l
+                    or "hit" in note_l or note_l.startswith("v2l")
+                    or note_l.startswith("dcq") or note_l.startswith("cc:")
+                    or note_l.startswith("push_notif"))
                 else "check"
             )
             rows.append(

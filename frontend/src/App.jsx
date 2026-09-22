@@ -106,23 +106,31 @@ export default function App() {
             <Stethoscope size={26} />
           </div>
           <h1>iftools</h1>
-          <p>Enter your username and password to open the console.</p>
-          <Input
-            type="text"
-            placeholder="Username"
-            autoComplete="username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && doLogin()}
-          />
-          <Input
-            type="password"
-            placeholder="Password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && doLogin()}
-          />
+          <p>Enter your credentials to open the console.</p>
+          <div className="login-field">
+            <label htmlFor="login-user" className="login-label">Username</label>
+            <Input
+              id="login-user"
+              type="text"
+              placeholder="Username"
+              autoComplete="username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && doLogin()}
+            />
+          </div>
+          <div className="login-field">
+            <label htmlFor="login-pass" className="login-label">Password</label>
+            <Input
+              id="login-pass"
+              type="password"
+              placeholder="Password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && doLogin()}
+            />
+          </div>
           <Button variant="primary" size="lg" onClick={doLogin}>
             Sign in
           </Button>

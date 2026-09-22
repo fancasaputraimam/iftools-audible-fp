@@ -1,4 +1,4 @@
-const TOKEN_KEY = 'github-regkit-token'
+const TOKEN_KEY = 'iftools_token'
 
 export function getToken() {
   return localStorage.getItem(TOKEN_KEY) || ''
