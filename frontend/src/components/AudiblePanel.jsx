@@ -451,6 +451,13 @@ export default function AudiblePanel() {
             value={workers}
             onChange={(e) => setWorkers(e.target.value)}
             className="status-count-input"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck="false"
+            name="audible-workers"
+            data-lpignore="true"
+            data-1p-ignore="true"
           />
         </div>
 
@@ -463,6 +470,13 @@ export default function AudiblePanel() {
             value={limit}
             onChange={(e) => setLimit(e.target.value)}
             className="status-count-input"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck="false"
+            name="audible-limit"
+            data-lpignore="true"
+            data-1p-ignore="true"
           />
         </div>
 
