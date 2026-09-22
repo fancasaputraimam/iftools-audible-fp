@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Check, Copy, Download, Ellipsis, FileDown, FileJson, FileSpreadsheet, FileText, FolderGit2, KeyRound, Mail, Merge, Pencil, Play, Plus, ShieldCheck, Square, Trash2, UserMinus, UserPlus } from 'lucide-react'
+import { Check, Copy, Download, Ellipsis, FileDown, FileJson, FileSpreadsheet, FileText, FolderGit2, KeyRound, Mail, Merge, Pencil, Play, Plug, Plus, ShieldCheck, Square, Trash2, UserMinus, UserPlus, Zap } from 'lucide-react'
 import { api, getToken } from '../api.js'
 import { Button, Card, Dialog, EmptyState, Input, Spinner } from './ui.jsx'
 
@@ -28,10 +28,19 @@ export default function AccountsPanel({ group = '', onClearGroup, onGroupsChange
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0 })
   const [exportOpen, setExportOpen] = useState(false)
   const exportRef = useRef(null)
+  // manual integration (codebuddy / 9router)
+  const [integ, setInteg] = useState(null) // {mode, items, total, cbCount, r9Count}
+  const [integOpen, setIntegOpen] = useState(false)
+  const [integBusy, setIntegBusy] = useState(false)
+  const [integStatus, setIntegStatus] = useState(null)
+  const integTimer = useRef(null)
   // Loading flags only cover user-visible loads, not background polling.
   const [loadingFiles, setLoadingFiles] = useState(true)
   const [loadingRows, setLoadingRows] = useState(false)
   const [loadError, setLoadError] = useState('')
+  // Which tool's accounts to show: github (default), audible, or all
+  const [source, setSource] = useState('github')
+  const [audibleRows, setAudibleRows] = useState([])
 
   function notify(msg) {
     setToast(msg)
@@ -52,6 +61,44 @@ export default function AccountsPanel({ group = '', onClearGroup, onGroupsChange
   }
 
   const currentName = selected || files[0]?.name || ''
+
+  // Audible result rows load independently of the GitHub account files.
+  const loadAudible = (silent = false) => {
+    return api
+      .get('/api/audible/accounts')
+      .then((d) => setAudibleRows(d.items || []))
+      .catch(() => setAudibleRows([]))
+      .finally(() => {
+        if (!silent) setLoadingRows(false)
+      })
+  }
+
+  // Unified view: github rows + audible rows when source is 'all' or 'audible'.
+  const displayRows =
+    source === 'github'
+      ? rows
+      : source === 'audible'
+        ? audibleRows.map((r, i) => ({
+            n: i + 1,
+            email: r.email,
+            password: r.password,
+            file: 'audible_results.txt',
+            status: r.status,
+            note: r.note,
+            source: 'audible',
+          }))
+        : [
+            ...rows.map((r) => ({ ...r, source: r.source || 'github' })),
+            ...audibleRows.map((r, i) => ({
+              n: rows.length + i + 1,
+              email: r.email,
+              password: r.password,
+              file: 'audible_results.txt',
+              status: r.status,
+              note: r.note,
+              source: 'audible',
+            })),
+          ]
 
   const loadRows = (name, silent = false) => {
     const target = group || name
@@ -189,6 +236,85 @@ export default function AccountsPanel({ group = '', onClearGroup, onGroupsChange
     }
   }
 
+  async function openIntegrate(mode) {
+    setIntegBusy(true)
+    setIntegOpen(true)
+    try {
+      const d = await api.get(`/api/integrate/eligible?mode=${mode}`)
+      setInteg({
+        mode,
+        items: d.items || [],
+        total: d.total || 0,
+        cbCount: d.codebuddy_count ?? 0,
+        r9Count: d.router9_count ?? -1,
+        picked: new Set((d.items || []).map((i) => i.email)),
+      })
+    } catch (e) {
+      notify(e.message)
+      setIntegOpen(false)
+    } finally {
+      setIntegBusy(false)
+    }
+  }
+
+  function toggleIntegPick(email) {
+    setInteg((cur) => {
+      if (!cur) return cur
+      const picked = new Set(cur.picked)
+      picked.has(email) ? picked.delete(email) : picked.add(email)
+      return { ...cur, picked }
+    })
+  }
+
+  function stopIntegPoll() {
+    if (integTimer.current) {
+      clearInterval(integTimer.current)
+      integTimer.current = null
+    }
+  }
+
+  async function startIntegrate() {
+    if (!integ) return
+    stopIntegPoll()
+    setIntegBusy(true)
+    try {
+      await api.post('/api/integrate/start', {
+        mode: integ.mode,
+        emails: Array.from(integ.picked || []),
+      })
+    } catch (e) {
+      notify(e.message)
+      setIntegBusy(false)
+      return
+    }
+    setIntegStatus({ running: true, done: 0, total: integ.picked.size || 0, ok: 0, fail: 0, current: '', results: [] })
+    const startedAt = Date.now()
+    integTimer.current = setInterval(async () => {
+      if (Date.now() - startedAt > 1000 * 60 * 30) { stopIntegPoll(); setIntegBusy(false); return }
+      try {
+        const d = await api.get('/api/integrate/status')
+        setIntegStatus(d)
+        if (!d.running) {
+          stopIntegPoll()
+          setIntegBusy(false)
+          notify(`${integ.mode === 'codebuddy' ? 'CodeBuddy' : '9router'}: OK ${d.ok} | FAIL ${d.fail}`)
+          loadRows(currentName, true)
+          loadFiles()
+        }
+      } catch (e) {
+        stopIntegPoll()
+        setIntegBusy(false)
+      }
+    }, 1500)
+  }
+
+  async function stopIntegrate() {
+    try { await api.post('/api/integrate/stop') } catch {}
+    stopIntegPoll()
+    setIntegBusy(false)
+    setIntegStatus((cur) => (cur ? { ...cur, running: false } : cur))
+  }
+
   async function copyValue(value) {
     if (!value) return false
     try {
@@ -307,6 +433,7 @@ export default function AccountsPanel({ group = '', onClearGroup, onGroupsChange
   }
 
   useEffect(() => stopResendPoll, [])
+  useEffect(() => stopIntegPoll, [])
 
   useEffect(() => {
     if (!exportOpen) return undefined
@@ -518,7 +645,7 @@ export default function AccountsPanel({ group = '', onClearGroup, onGroupsChange
                 <Spinner />
               )}
             </div>
-            <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 3 }}>
+            <div style={{ fontSize: 12.5, color: 'var(--text-3)', marginTop: 3 }}>
               {loadingRows && rows.length === 0
                 ? 'Loading accounts'
                 : group
@@ -559,6 +686,41 @@ export default function AccountsPanel({ group = '', onClearGroup, onGroupsChange
             </span>
             {!group && (
               <>
+                <div className="glass-segmented" role="group" aria-label="Account source" style={{ flex: 'none' }}>
+                  {[
+                    { id: 'github', label: 'GitHub' },
+                    { id: 'audible', label: 'Audible' },
+                    { id: 'all', label: 'All' },
+                  ].map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      className={source === s.id ? 'active' : ''}
+                      onClick={() => {
+                        setSource(s.id)
+                        if (s.id !== 'github') loadAudible(false)
+                      }}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={() => openIntegrate('codebuddy')}
+                  disabled={integBusy}
+                  title="Register existing GitHub accounts at codebuddy.ai"
+                >
+                  <Zap size={15} /> CodeBuddy
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => openIntegrate('router9')}
+                  disabled={integBusy}
+                  title="Inject codebuddy-registered accounts into 9router"
+                >
+                  <Plug size={15} /> 9router
+                </Button>
                 <Button variant="primary" onClick={downloadRaw} disabled={!files.length}><Download size={15} /> Download</Button>
                 {files.length > 0 && (
                   <Button
@@ -596,7 +758,7 @@ export default function AccountsPanel({ group = '', onClearGroup, onGroupsChange
 
         {!group && files.length > 1 && (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            {files.slice(0, 8).map((f) => {
+            {source === 'github' && files.slice(0, 8).map((f) => {
               const active = currentName === f.name
               return (
                 <Button
@@ -606,10 +768,15 @@ export default function AccountsPanel({ group = '', onClearGroup, onGroupsChange
                   onClick={() => setSelected(f.name)}
                 >
                   {fileLabel(f.name)}
-                  <span style={{ color: 'var(--muted)', marginLeft: 4 }}>{fmtSize(f.size)}</span>
+                  <span style={{ color: 'var(--text-3)', marginLeft: 4 }}>{fmtSize(f.size)}</span>
                 </Button>
               )
             })}
+            {source !== 'github' && (
+              <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
+                {audibleRows.length} audible results
+              </span>
+            )}
           </div>
         )}
       </Card>
@@ -622,9 +789,9 @@ export default function AccountsPanel({ group = '', onClearGroup, onGroupsChange
             <span>{loadError}</span>
             <Button onClick={() => { loadFiles(false); loadRows(currentName, false) }}>Retry</Button>
           </div>
-        ) : rows.length === 0 && (loadingFiles || loadingRows) ? (
+        ) : displayRows.length === 0 && (loadingFiles || loadingRows) ? (
           <TableSkeleton />
-        ) : rows.length === 0 ? (
+        ) : displayRows.length === 0 ? (
           renderEmptyState()
         ) : (
           <div className="accounts-table-wrap">
@@ -634,16 +801,24 @@ export default function AccountsPanel({ group = '', onClearGroup, onGroupsChange
                   <th style={styles.th}>#</th>
                   <th style={styles.th}>Email</th>
                   <th style={styles.th}>Password</th>
-                  <th style={styles.th}>Username</th>
-                  <th style={styles.th}>TOTP Secret</th>
-                  {!group && <th style={styles.th}>Group</th>}
+                  {source === 'audible' || source === 'all' ? (
+                    <th style={styles.th}>Status</th>
+                  ) : (
+                    <th style={styles.th}>Username</th>
+                  )}
+                  {source === 'audible' || source === 'all' ? (
+                    <th style={styles.th}>Note</th>
+                  ) : (
+                    <th style={styles.th}>TOTP Secret</th>
+                  )}
+                  {!group && source !== 'audible' && <th style={styles.th}>Group</th>}
                   <th style={{ ...styles.th, minWidth: 120 }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r, i) => (
+                {displayRows.map((r, i) => (
                   <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
-                    <td data-label="#" style={{ ...styles.td, color: 'var(--muted)' }}>{i + 1}</td>
+                    <td data-label="#" style={{ ...styles.td, color: 'var(--text-3)' }}>{i + 1}</td>
                     <td data-label="Email" style={styles.tdEmail}>
                       <CopyCell
                         value={r.email}
@@ -659,43 +834,58 @@ export default function AccountsPanel({ group = '', onClearGroup, onGroupsChange
                         onCopy={() => copyValue(r.password)}
                       />
                     </td>
-                    <td data-label="Username" style={{ ...styles.tdMono, color: 'var(--text-secondary)' }}>
-                      <CopyCell
-                        value={r.username}
-                        label="Username"
-                        onCopy={() => copyValue(r.username)}
-                      />
-                    </td>
-                    <td data-label="TOTP Secret" style={{ ...styles.tdMono, color: 'var(--text-secondary)' }}>
-                      {r.totp ? (
-                        <CopyCell
-                          value={r.totp}
-                          masked
-                          label="TOTP secret"
-                          onCopy={() => copyValue(r.totp)}
-                        />
-                      ) : (
-                        <span style={{ color: 'var(--text-secondary)' }}>-</span>
-                      )}
-                    </td>
-                    {!group && (
-                      <td data-label="Group" style={{ ...styles.td, maxWidth: 220 }}>
-                        {r.groups?.length ? (
-                          <span style={{ display: 'inline-flex', gap: 5, flexWrap: 'wrap' }}>
-                            {r.groups.map((g) => (
-                              <button key={g} type="button" className="group-badge" onClick={() => openAssign(r.email)} title="Change this account's groups">
-                                <FolderGit2 size={11} /> {g}
+                    {r.source === 'audible' ? (
+                      <>
+                        <td data-label="Status" style={styles.td}>
+                          <Badge tone={r.status === 'ok' ? 'success' : r.status === 'fail' ? 'danger' : 'warning'}>
+                            {r.status === 'ok' ? 'Hit' : r.status === 'fail' ? 'Bad' : 'Check'}
+                          </Badge>
+                        </td>
+                        <td data-label="Note" style={{ ...styles.td, fontSize: 12, color: 'var(--text-3)' }}>
+                          {r.note || '—'}
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td data-label="Username" style={{ ...styles.tdMono, color: 'var(--text-secondary)' }}>
+                          <CopyCell
+                            value={r.username}
+                            label="Username"
+                            onCopy={() => copyValue(r.username)}
+                          />
+                        </td>
+                        <td data-label="TOTP Secret" style={{ ...styles.tdMono, color: 'var(--text-secondary)' }}>
+                          {r.totp ? (
+                            <CopyCell
+                              value={r.totp}
+                              masked
+                              label="TOTP secret"
+                              onCopy={() => copyValue(r.totp)}
+                            />
+                          ) : (
+                            <span style={{ color: 'var(--text-secondary)' }}>-</span>
+                          )}
+                        </td>
+                        {!group && (
+                          <td data-label="Group" style={{ ...styles.td, maxWidth: 220 }}>
+                            {r.groups?.length ? (
+                              <span style={{ display: 'inline-flex', gap: 5, flexWrap: 'wrap' }}>
+                                {r.groups.map((g) => (
+                                  <button key={g} type="button" className="group-badge" onClick={() => openAssign(r.email)} title="Change this account's groups">
+                                    <FolderGit2 size={11} /> {g}
+                                  </button>
+                                ))}
+                              </span>
+                            ) : r.group ? (
+                                <button type="button" className="group-badge" onClick={() => openAssign(r.email)} title="Change this account's groups">
+                                <FolderGit2 size={11} /> {r.group}
                               </button>
-                            ))}
-                          </span>
-                        ) : r.group ? (
-                            <button type="button" className="group-badge" onClick={() => openAssign(r.email)} title="Change this account's groups">
-                            <FolderGit2 size={11} /> {r.group}
-                          </button>
-                        ) : (
-                          <span style={{ color: 'var(--text-secondary)' }}>-</span>
+                            ) : (
+                              <span style={{ color: 'var(--text-secondary)' }}>-</span>
+                            )}
+                          </td>
                         )}
-                      </td>
+                      </>
                     )}
                     <td data-label="Actions" style={{ ...styles.td, minWidth: 64 }}>
                       <span
@@ -732,7 +922,7 @@ aria-controls="row-action-menu"
         {loadingRows && rows.length > 0 && (
           <div style={styles.tableRefresh} aria-hidden="true">
             <Spinner />
-            <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--muted)' }}>Loading</span>
+            <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--text-3)' }}>Loading</span>
           </div>
         )}
       </Card>
@@ -754,11 +944,11 @@ aria-controls="row-action-menu"
       >
         {rename && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+            <div style={{ fontSize: 13, color: 'var(--text-3)' }}>
               Renaming <strong style={{ color: 'var(--text)' }}>{rename.name}</strong>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>github_accounts_</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-3)', whiteSpace: 'nowrap' }}>github_accounts_</span>
               <Input
                 autoFocus
                 value={rename.value}
@@ -768,9 +958,9 @@ aria-controls="row-action-menu"
                 disabled={renameBusy}
                 style={{ flex: 1 }}
               />
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>.txt</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-3)', whiteSpace: 'nowrap' }}>.txt</span>
             </div>
-            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+            <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
               Only letters, digits, <code>-</code>, <code>_</code>, and <code>.</code> are allowed.
             </div>
           </div>
@@ -842,18 +1032,18 @@ aria-controls="row-action-menu"
       >
         {assign && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div style={{ fontSize: 13, color: 'var(--muted)', overflowWrap: 'anywhere' }}>
+            <div style={{ fontSize: 13, color: 'var(--text-3)', overflowWrap: 'anywhere' }}>
               Account <strong style={{ color: 'var(--text)' }}>{assign.email}</strong>
             </div>
-            <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+            <div style={{ fontSize: 12.5, color: 'var(--text-3)' }}>
               One account can join multiple groups. Click to add / remove.
             </div>
             {assign.groups === null ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0' }}>
-                <Spinner /> <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>Loading groups</span>
+                <Spinner /> <span style={{ fontSize: 12.5, color: 'var(--text-3)' }}>Loading groups</span>
               </div>
             ) : assign.groups.length === 0 ? (
-              <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No groups yet. Create one below.</div>
+              <div style={{ fontSize: 12.5, color: 'var(--text-3)' }}>No groups yet. Create one below.</div>
             ) : (
               <div className="group-pick-list">
                 {assign.groups.map((g) => {
@@ -918,7 +1108,7 @@ aria-controls="row-action-menu"
       >
         {resend && (
           <div style={{ display: 'grid', gap: 12 }}>
-            <div style={{ fontSize: 13, color: 'var(--muted)', overflowWrap: 'anywhere' }}>
+            <div style={{ fontSize: 13, color: 'var(--text-3)', overflowWrap: 'anywhere' }}>
               Mailbox <strong style={{ color: 'var(--text)' }}>{resend.email}</strong>
             </div>
             {resend.status === 'running' && (
@@ -930,7 +1120,7 @@ aria-controls="row-action-menu"
             {resend.status === 'done' && resend.code && (
               <>
                 <code className="resend-code">{resend.code}</code>
-                <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
                   {resend.expired_at ? `Window open until ${resend.expired_at}` : 'Code received'}
                 </div>
               </>
@@ -1004,7 +1194,93 @@ aria-controls="row-action-menu"
         </div>
       )}
 
-      {toast && <div className="glass toast glass-strong" style={{ padding: '12px 26px', fontSize: 13.5 }}>{toast}</div>}
+      <Dialog
+        open={!!integOpen}
+        onClose={() => { if (!integBusy) { setIntegOpen(false); setInteg(null) } }}
+        title={integ?.mode === 'codebuddy' ? 'Register at CodeBuddy' : 'Inject into 9router'}
+        footer={
+          <>
+            <Button onClick={() => { setIntegOpen(false); setInteg(null) }} disabled={integBusy}>Close</Button>
+            {integStatus?.running ? (
+              <Button variant="destructive" onClick={stopIntegrate}>
+                <Square size={15} /> Stop
+              </Button>
+            ) : (
+              <Button
+                variant="primary"
+                onClick={startIntegrate}
+                disabled={integBusy || !integ?.picked?.size}
+              >
+                <Play size={15} /> Run ({integ?.picked?.size || 0})
+              </Button>
+            )}
+          </>
+        }
+      >
+        {integ && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ fontSize: 13, color: 'var(--text-3)' }}>
+              {integ.mode === 'codebuddy'
+                ? <>GitHub accounts without a CodeBuddy record. Each one logs in to GitHub with the stored credentials, then runs the CodeBuddy GitHub-OAuth registration.</>
+                : <>Accounts already registered at CodeBuddy. Each one logs in to GitHub, then runs the 9router device-code injection.</>}
+            </div>
+            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12.5, color: 'var(--text-3)' }}>
+              <span>{integ.total} accounts total</span>
+              <span style={{ color: 'var(--success, #2da44e)' }}>{integ.cbCount} codebuddy</span>
+              {integ.r9Count >= 0 && <span>{integ.r9Count} in 9router</span>}
+              <span style={{ fontWeight: 700, color: 'var(--text)' }}>{integ.items.length} eligible</span>
+            </div>
+
+            {integStatus?.running && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-secondary)', overflowWrap: 'anywhere' }}>
+                <Spinner />
+                <span>
+                  {integStatus.done}/{integStatus.total} — now: {integStatus.current || '…'} (OK {integStatus.ok} · FAIL {integStatus.fail})
+                </span>
+              </div>
+            )}
+
+            {integ.items.length === 0 ? (
+              <div style={{ fontSize: 13, color: 'var(--text-3)' }}>
+                {integ.mode === 'codebuddy' ? 'All accounts already have CodeBuddy credentials.' : 'No CodeBuddy-registered accounts yet — run CodeBuddy first.'}
+              </div>
+            ) : (
+              <div className="group-pick-list" style={{ maxHeight: 300, overflow: 'auto' }}>
+                {integ.items.map((it) => {
+                  const on = integ.picked?.has(it.email)
+                  return (
+                    <button
+                      key={it.email}
+                      type="button"
+                      className={on ? 'group-pick member' : 'group-pick'}
+                      onClick={() => toggleIntegPick(it.email)}
+                      disabled={integBusy}
+                    >
+                      <span className="group-check" aria-hidden="true">{on && <Check size={13} />}</span>
+                      <span className="group-pick-name" style={{ overflowWrap: 'anywhere' }}>{it.email}</span>
+                      {integ.mode === 'router9' && it.connected && (
+                        <span className="group-pick-count">connected</span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+
+            {integStatus && !integStatus.running && (integStatus.results || []).length > 0 && (
+              <div style={{ display: 'grid', gap: 6, fontSize: 12.5 }}>
+                {integStatus.results.map((r) => (
+                  <div key={r.email} style={{ color: r.error ? 'var(--danger)' : 'var(--text-secondary)', overflowWrap: 'anywhere' }}>
+                    {r.error ? '✗' : '✓'} {r.email} {r.error ? `— ${r.error.slice(0, 120)}` : ''}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </Dialog>
+
+      {toast && <div className="toast" style={{ padding: '12px 26px', fontSize: 14 }}>{toast}</div>}
     </div>
   )
 }
@@ -1108,7 +1384,7 @@ const styles = {
   th: {
     textAlign: 'left', padding: '10px 16px', fontSize: 10.5, fontWeight: 700,
     letterSpacing: 0.8, textTransform: 'uppercase', color: 'var(--text-secondary)',
-    borderBottom: '1px solid var(--border)', background: 'var(--bg-card)',
+    borderBottom: '1px solid var(--border)', background: 'var(--surface)',
     position: 'sticky', top: 0, zIndex: 1, whiteSpace: 'nowrap',
   },
   td: { padding: '14px 16px', fontSize: 13, verticalAlign: 'middle' },

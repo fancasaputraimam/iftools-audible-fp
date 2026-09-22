@@ -64,3 +64,11 @@ regkit_codebuddy.*
 *.tmp
 .DS_Store
 proxies.txt*
+audible_results.txt*
+audible_results_filtered.txt*
+proxy_pool_debug*.json
+.claude/
+.codex/
+.codegraph/
+proxies_live.txt*
+proxies*.txt

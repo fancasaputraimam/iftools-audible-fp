@@ -7,10 +7,23 @@ from pathlib import Path
 
 @dataclass
 class Config:
-    # Mail provider: "mailcx" (free, default) or "litensi" (paid, reliable)
-    mail_provider: str = "mailcx"  # "mailcx" | "litensi"
+    # Mail provider: "mailcx" (free, default), "litensi" (paid, reliable),
+    # or "imap" (self-hosted mailcow etc. via IMAP + catch-all domain)
+    mail_provider: str = "imap"  # "mailcx" | "litensi" | "imap"
     # Mail.cx temp email settings
-    mailcx_domain: str = ""  # empty = auto-pick from uqu.me, ddker.com, 9k3r.com
+    mailcx_domain: str = ""  # e.g. "lflood.dev"
+    # IMAP (self-hosted mailcow / catch-all domain) — DEFAULT: mail.jamurhiratake.com
+    imap_host: str = "mail.jamurhiratake.com"
+    imap_port: int = 993
+    imap_username: str = "ghreg@ifcodex.me"  # catch-all mailbox login (full address)
+    imap_password: str = "GhReg2026!CatchAll"
+    imap_domain: str = (
+        "ifcodex.me,ifmail.app,ifmail.email,ifqmz.tech,ifqmzz.codes,"
+        "iflogic.me,iflogic.my.id,ifnote.app,ifshop.my.id,ifnetworks.me,"
+        "jamurhiratake.com,quickpost.web.id,snapmail.biz.id,mailsystem.biz.id,"
+        "netnode.web.id,panelbotif.my.id,globalsync.web.id,hiratake.tech,if-mail.tech"
+    )  # comma-separated => random rotation per registration (all catch-all -> ghreg)
+    imap_ssl: bool = True
     # Litensi Mail settings
     litensi_api_id: str = ""
     litensi_api_key: str = ""
@@ -40,6 +53,12 @@ class Config:
     profile_name: str = ""            # blank = Random User
     profile_bio: str = ""             # blank = ZenQuotes
     profile_location: str = ""        # blank = Random User country
+    # ── post-registration integrations ─────────────────────────────────────
+    # auto-register codebuddy.ai via GitHub OAuth while the session is active
+    codebuddy: bool = True
+    # inject the GitHub account into a 9router instance (dashboard API)
+    router9_url: str = "http://127.0.0.1:20128"  # local instance
+    router9_password: str = "123456"             # INITIAL_PASSWORD default
 
     @classmethod
     def from_dict(cls, data: dict) -> "Config":

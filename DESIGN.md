@@ -1,483 +1,142 @@
-# Resend — Style Reference
-> black velvet with violet neon
+# iftools — DESIGN.md
 
-**Theme:** dark
+> **Verdana Health Design System** — a calm, trustworthy system built for
+> digital health platforms, telehealth dashboards, and patient-facing wellness
+> applications. Its foundation of deep navy and soft sage greens evokes
+> clinical precision tempered by warmth. It prioritizes readability,
+> accessibility, and a sense of reassurance across every touchpoint.
+>
+> Bound design authority for iftools, supplied verbatim by the operator.
 
-Source measurements are normalized; roles and recommendations are interpreted. Font summary lists are independent, not paired by position. HTML examples are reconstructions, not source components.
-
-Resend lives in a near-total darkness — pure black canvas, hairline graphite borders, and white-on-black typography that feels like reading text printed on matte glass. The hero is anti-decorative: a single large serif headline at 96px Domaine next to a 3D black cube, with no gradient wash and no marketing illustration. The brand mark is a tight violet (#9281f7) that appears in email-address strings, status icons, and code samples — never on buttons. A monospaced font (Commit Mono) carries the developer identity through every code block, badge, and inline label, making the page read like a terminal wrapped in a luxury interface. Components are sharp-cornered or gently rounded (6px / 16px), low-elevation, and rely on 1px borders rather than shadows to separate layers. Motion is restrained but expressive: fade-and-slide hero text, subtle WebGL rotation on the hero cube, and short 150ms ease-out transitions on hover.
+## Theme
+Light. Background `#F8FAFC`, white surfaces, navy authority, sage reserved for
+the interactive and the positive.
 
 ## Tokens — Colors
 
 | Name | Value | Token | Role |
 |------|-------|-------|------|
-| Void Black | `#000000` | `--color-void-black` | Page background, card surfaces, overlay scrims — the entire canvas |
-| Graphite Hairline | `#292d30` | `--color-graphite-hairline` | 1px borders on cards, inputs, buttons, code blocks, dividers — defines every layer separation |
-| White | `#ffffff` | `--color-white` | Primary headings, hero text, button labels, icon fills on dark surfaces |
-| Bone White | `#f0f0f0` | `--color-bone-white` | Body text, secondary headings, stroke outlines on icons — the primary reading color |
-| Ash Gray | `#a1a4a5` | `--color-ash-gray` | Muted body text, badge labels, icon strokes — third-tier text and metadata |
-| Smoke Gray | `#abafb4` | `--color-smoke-gray` | Link color, inactive button text, supporting captions — fourth-tier text |
-| Iron | `#6e727a` | `--color-iron` | Subtle decorative strokes, disabled states, low-emphasis borders |
-| Charcoal | `#464a4d` | `--color-charcoal` | Inline code text, muted labels — text that should disappear into the surface |
-| Iris Violet | `linear-gradient(to right bottom in oklab, rgb(146, 129, 247) 0%, rgb(154, 84, 220) 100%)` | `--color-iris-violet` | Violet text accent for links, tags, and emphasized short phrases; Diagonal violet-to-magenta gradient on icon containers and brand badges |
-| Iris Violet Glow | `#baa7ff` | `--color-iris-violet-glow` | Violet text accent for links, tags, and emphasized short phrases |
-| Signal Blue | `#3b9eff` | `--color-signal-blue` | Blue action color for filled buttons, selected navigation states, and focused conversion moments. |
-| Sky Blue | `#70b8ff` | `--color-sky-blue` | Blue text accent for links, tags, and emphasized short phrases |
-| Pulse Green | `#3ad389` | `--color-pulse-green` | Green text accent for links, tags, and emphasized short phrases. Use as a supporting accent, not as a status color |
-| Alarm Red | `#ff9592` | `--color-alarm-red` | Red text accent for links, tags, and emphasized short phrases. Use as a supporting accent, not as a status color |
-| Crimson | `#ff6465` | `--color-crimson` | Red wash for highlight backgrounds, decorative bands, and soft emphasis behind content. Use as a supporting accent, not as a status color |
-| Amber | `#ffca16` | `--color-amber` | Yellow text accent for links, tags, and emphasized short phrases. Use as a supporting accent, not as a status color |
-| Amber Glow | `#ffd60a` | `--color-amber-glow` | Yellow wash for highlight backgrounds, decorative bands, and soft emphasis behind content. Use as a supporting accent, not as a status color |
-| Surface Gradient | `linear-gradient(rgb(27, 27, 27), rgb(3, 3, 3))` | `--color-surface-gradient` | Subtle card-to-canvas surface lift — used in edge fades and elevated panels |
+| Primary Navy | `#0F172A` | `--navy` | Primary actions, strong headers |
+| Navy Deep | `#020617` | `--navy-deep` | Hover fill on primary actions |
+| Secondary Slate | `#64748B` | `--slate` | Secondary text, borders |
+| Tertiary Sage | `#059669` | `--sage` | Links, CTAs, highlights |
+| Background | `#F8FAFC` | `--bg` | Page background |
+| Surface | `#FFFFFF` | `--surface` | Card backgrounds |
+| Surface 2 | `#F1F5F9` | `--surface-2` | Muted fills, hover, disabled input |
+| Border | `#E2E8F0` | `--border` | 1px borders, dividers |
+| Border Strong | `#CBD5E1` | `--border-strong` | Unchecked control borders |
+| Text | `#0F172A` | `--text` | Primary text, headings |
+| Text 2 | `#475569` | `--text-2` | Body copy |
+| Text 3 | `#64748B` | `--text-3` | Captions, helper text |
+| Text Muted | `#94A3B8` | `--text-muted` | Placeholders |
+| Success | `#22C55E` | `--success` | Confirmed, healthy range |
+| Success Deep | `#16A34A` | `--success-deep` | Status-chip text on tinted fill |
+| Success Soft | `#DCFCE7` | `--success-soft` | Status-chip fill |
+| Warning | `#EAB308` | `--warning` | Pending results, caution |
+| Warning Deep | `#CA8A04` | `--warning-deep` | Status-chip text |
+| Warning Soft | `#FEF9C3` | `--warning-soft` | Status-chip fill |
+| Error | `#EF4444` | `--danger` | Critical, out of range |
+| Error Deep | `#DC2626` | `--danger-deep` | Hover fill, status-chip text |
+| Error Soft | `#FEE2E2` | `--danger-soft` | Status-chip fill |
+| Info | `#0EA5E9` | `--info` | Informational, new feature |
+
+**Sage rule:** sage is reserved for interactive elements and positive states
+only. The primary visual rhythm is navy on white.
 
 ## Tokens — Typography
 
-### Inter — Body copy, UI labels, navigation, buttons, links. The workhorse — appears 1280 times across every non-code surface. · `--font-inter`
-- **Substitute:** Inter (Google Fonts), Söhne, system-ui
-- **Weights:** 400, 500, 600
-- **Sizes:** 12px, 14px, 16px, 18px, 24px
-- **Line height:** 1.00, 1.33, 1.43, 1.50, 1.60
-- **Role:** Body copy, UI labels, navigation, buttons, links. The workhorse — appears 1280 times across every non-code surface.
+Plus Jakarta Sans (headline), DM Sans (body), Fira Code (mono / tabular data).
 
-### Domaine — Hero display type — weight 400 at 96px with -0.01em tracking creates an editorial, almost-printed feel. Only used twice on the entire page for the largest hero statement. · `--font-domaine`
-- **Substitute:** GT Sectra, Tiempos Headline, Playfair Display
-- **Weights:** 400
-- **Sizes:** 77px, 96px
-- **Line height:** 1.00
-- **Letter spacing:** -0.01em
-- **OpenType features:** `"ss01", "ss04", "ss11"`
-- **Role:** Hero display type — weight 400 at 96px with -0.01em tracking creates an editorial, almost-printed feel. Only used twice on the entire page for the largest hero statement.
+| Style | Family | Size | Weight | Line height |
+|-------|--------|------|--------|-------------|
+| Display | Plus Jakarta Sans | 40px | 700 | 1.15 |
+| H1 | Plus Jakarta Sans | 32px | 700 | 1.2 |
+| H2 | Plus Jakarta Sans | 24px | 600 | 1.25 |
+| H3 | Plus Jakarta Sans | 20px | 600 | 1.3 |
+| H4 | Plus Jakarta Sans | 16px | 500 | 1.35 |
+| Body LG | DM Sans | 18px | 400 | 1.6 |
+| Body | DM Sans | 16px | 400 | 1.6 |
+| Body SM | DM Sans | 14px | 400 | 1.5 |
+| Caption | DM Sans | 12px | 500 | 1.4 |
+| Code | Fira Code | 14px | 400 | 1.6 |
 
-### aBC Favorit — Section headlines and sub-headlines. The 56px weight-400 with -0.05em tracking is the signature — extreme negative tracking on a geometric sans creates a compressed, confident display feel that contrasts the editorial Domaine hero. · `--font-abc-favorit`
-- **Substitute:** Inter Display, Söhne Breit, GT America
-- **Weights:** 400, 500
-- **Sizes:** 14px, 16px, 20px, 56px
-- **Line height:** 1.00, 1.20, 1.30, 1.50
-- **Letter spacing:** -0.05em at 56px, +0.025em at 14px
-- **OpenType features:** `"ss01", "ss04", "ss11"; "ss01", "ss03", "ss04"`
-- **Role:** Section headlines and sub-headlines. The 56px weight-400 with -0.05em tracking is the signature — extreme negative tracking on a geometric sans creates a compressed, confident display feel that contrasts the editorial Domaine hero.
+## Tokens — Spacing
+Base unit **8px**: xs 4 · sm 8 · md 16 · lg 24 · xl 32 · 2xl 48 · 3xl 64.
 
-### Commit Mono — Code blocks, inline code, terminal-style badges, API labels. Monospaced presence is the developer's identity signal — appears 814 times, rivaling Inter. · `--font-commit-mono`
-- **Substitute:** JetBrains Mono, Berkeley Mono, IBM Plex Mono
-- **Weights:** 400
-- **Sizes:** 12px, 14px, 16px
-- **Line height:** 1.33, 1.43, 1.50
-- **Role:** Code blocks, inline code, terminal-style badges, API labels. Monospaced presence is the developer's identity signal — appears 814 times, rivaling Inter.
+## Tokens — Border Radius
+sm 4px (badges, tags) · DEFAULT 8px (buttons, cards, inputs) · md 12px
+(modals, dropdowns) · lg 16px (large containers, hero) · full 9999px (avatars,
+status dots).
 
-### Helvetica — Helvetica — detected in extracted data but not described by AI · `--font-helvetica`
-- **Weights:** 400, 600, 700
-- **Sizes:** 14px
-- **Line height:** 1, 1.71
-- **Role:** Helvetica — detected in extracted data but not described by AI
+## Tokens — Elevation
+Gentle, diffused shadows — clinical yet approachable.
 
-### -apple-system — -apple-system — detected in extracted data but not described by AI · `--font-apple-system`
-- **Weights:** 400
-- **Sizes:** 14px
-- **Line height:** 1.5, 1.55
-- **OpenType features:** `"liga" 0`
-- **Role:** -apple-system — detected in extracted data but not described by AI
-
-### Type Scale
-
-| Role | Family | Weight | Size | Line Height | Letter Spacing | Token |
-|------|--------|--------|------|-------------|----------------|-------|
-| caption | — | — | 12px | 1.33 | 0px | `--text-caption` |
-| body-sm | — | — | 14px | 1.43 | 0px | `--text-body-sm` |
-| body | — | — | 16px | 1.5 | 0px | `--text-body` |
-| subheading | — | — | 20px | 1 | 0px | `--text-subheading` |
-| heading-sm | — | — | 24px | 1.5 | 0px | `--text-heading-sm` |
-| heading | — | — | 56px | 1.2 | -2.8px | `--text-heading` |
-| heading-lg | — | — | 77px | 1 | -0.77px | `--text-heading-lg` |
-| display | — | — | 96px | 1 | -0.96px | `--text-display` |
-
-## Tokens — Spacing & Shapes
-
-**Base unit:** 4px
-
-**Density:** comfortable
-
-### Spacing Scale
-
-| Name | Value | Token |
-|------|-------|-------|
-| 4 | 4px | `--spacing-4` |
-| 8 | 8px | `--spacing-8` |
-| 12 | 12px | `--spacing-12` |
-| 16 | 16px | `--spacing-16` |
-| 20 | 20px | `--spacing-20` |
-| 24 | 24px | `--spacing-24` |
-| 28 | 28px | `--spacing-28` |
-| 32 | 32px | `--spacing-32` |
-| 40 | 40px | `--spacing-40` |
-| 48 | 48px | `--spacing-48` |
-| 64 | 64px | `--spacing-64` |
-| 80 | 80px | `--spacing-80` |
-| 96 | 96px | `--spacing-96` |
-| 104 | 104px | `--spacing-104` |
-| 144 | 144px | `--spacing-144` |
-
-### Border Radius
-
-| Element | Value |
-|---------|-------|
-| cards | 16px |
-| badges | 6px |
-| inputs | 6px |
-| buttons | 6px |
-| large-panels | 24px |
-
-### Shadows
-
-| Name | Value | Token |
-|------|-------|-------|
-| subtle | `rgba(176, 199, 217, 0.145) 0px 0px 0px 1px` | `--shadow-subtle` |
-| subtle-2 | `rgb(0, 0, 0) 0px 0px 0px 8px` | `--shadow-subtle-2` |
-| subtle-3 | `rgba(0, 0, 0, 0.1) 0px 1px 3px 0px, rgba(0, 0, 0, 0.1) 0p...` | `--shadow-subtle-3` |
-
-### Layout
-
-- **Page max-width:** 1200px
-- **Section gap:** 96px
-- **Card padding:** 32px
-- **Element gap:** 16px
+| Level | Value | Use |
+|-------|-------|-----|
+| sm | `0 1px 3px rgba(15,23,42,0.03)` | Buttons, chips |
+| DEFAULT | `0 2px 6px rgba(15,23,42,0.05)` | Cards, dropdowns |
+| md | `0 4px 16px rgba(15,23,42,0.07)` | Elevated cards |
+| lg | `0 8px 32px rgba(15,23,42,0.10)` | Modals, panels |
 
 ## Components
 
-### Primary Button (Ghost on Black)
-**Role:** Default CTA — 'Get started', 'Log in'
+### Buttons
+- **Primary**: `#0F172A` fill, `#FFFFFF` text, no border, `#020617` hover.
+- **Secondary**: transparent fill, `#0F172A` text, `1px #0F172A` border,
+  `#0F172A0A` hover fill.
+- **Ghost**: transparent, `#475569` text, no border, `#F1F5F9` hover fill.
+- **Destructive**: `#EF4444` fill, `#FFFFFF` text, `#DC2626` hover.
+- Sizes: sm (6px 14px / 14px / 32px), md (10px 22px / 14px / 42px),
+  lg (12px 28px / 16px / 48px).
+- Disabled: 0.4 opacity, `not-allowed` cursor, all hover/focus suppressed.
 
-Transparent background, 1px border in #292d30, white text (#ffffff), 6px radius, 12px 16px padding. Hover increases border opacity to white. This is the signature button — never filled, never colorful.
+### Cards
+- Default: `#FFFFFF` fill, `1px #E2E8F0` border, no shadow, 8px radius.
+- Elevated: `#FFFFFF` fill, no border, md shadow, 8px radius.
+- 24px padding; optional tinted header strip `#0F172A` with white text for
+  category labels.
 
-### Nav Link Button
-**Role:** Top navigation items — 'Features', 'Company', 'Resources'
+### Inputs
+- Default: `1px #E2E8F0` border, white fill, no shadow.
+- Hover: `1px #0F172A` border.
+- Focus: `2px #0F172A` border + `3px #0F172A18` ring.
+- Error: `2px #EF4444` border + `3px #EF444418` ring.
+- Disabled: `1px #E2E8F0` border, `#F1F5F9` fill.
+- 42px height, `10px 14px` padding, 8px radius, DM Sans 14px/500, `#0F172A`.
+- Label: DM Sans 12px/400 `#475569`, 6px below. Helper 12px `#475569` 4px
+  below. Error text 12px `#EF4444` 4px below.
 
-Transparent background, no border, text color #f0f0f0 at 14px Inter weight 400, 0px padding. Underline or color shift on hover to #ffffff.
+### Chips
+- Filter: `#F8FAFC` fill, `#0F172A` text, `1px #E2E8F0` border.
+- Filter Active: `#0F172A` fill, `#FFFFFF` text, no border.
+- Status Success: `#22C55E15` fill, `#16A34A` text, no border.
+- Status Warning: `#EAB30815` fill, `#CA8A04` text, no border.
+- Status Error: `#EF444415` fill, `#DC2626` text, no border.
+- `4px 12px` padding, 4px radius, 12px/500, uppercase, `0.5px` tracking.
 
-### Text Link with Chevron
-**Role:** Inline CTAs — 'Documentation', 'Get started >'
+### Lists
+48px row height, `8px 16px` padding, `1px #F1F5F9` divider, `#F8FAFC` hover,
+`#0F172A06` active. DM Sans 16px/400 label, 14px/400 `#475569` description.
 
-No background, no border, white or #f0f0f0 text at 16px Inter, trailing chevron icon in same color. Restrained, terminal-like.
+### Checkboxes / Radios
+18×18px, 4px radius (checkbox) / full (radio). Unchecked: `1.5px #CBD5E1`
+border on white. Checked: navy fill, white checkmark / 8px navy dot. Disabled:
+40% opacity. 8px label spacing.
 
-### Hero Announcement Pill
-**Role:** 'Announcing Resend Forward >' badge above hero headline
-
-Transparent fill, 1px border in #292d30, #f0f0f0 text at 14px Inter, 9999px (pill) radius, 6px 12px padding. Small chromatic accent chevron.
-
-### Section Card
-**Role:** Content cards in feature sections and testimonial grid
-
-Black background (#000000), 1px border in #292d30, 16px radius, 32px padding, no shadow. Cards rely on the border to separate from the black canvas.
-
-### Testimonial Card
-**Role:** Customer quote cards in 'Beyond expectations' section
-
-Black background, 1px #292d30 border, 16px radius, 24px padding. Contains quoted text at 16px Inter, avatar (32px circle), name at 14px weight 500 in #f0f0f0, role/title in #a1a4a5.
-
-### Code Block / Terminal Window
-**Role:** Developer-facing code snippets and API examples
-
-Black background, 1px #292d30 border, 16px radius, Commit Mono at 12-14px. Syntax highlighting uses #9281f7 for strings/keywords, #3b9eff for filenames, #3ad389 for success values, #ff9592 for errors. Optional traffic-light dots in top-left for terminal aesthetic.
-
-### Logo Grid
-**Role:** Customer logos — Warner Bros, Max, Raycast, etc.
-
-Inline-display logos at their native colors on black canvas, centered in a 4-column grid with 60px row gap. No card wrappers, no labels — just the marks breathing against black.
-
-### Status Indicator Dot
-**Role:** Email event status — delivered, opened, clicked, bounced, complained
-
-2-3px diameter filled dot, no border, paired with label text in Commit Mono. Colors map to semantics: #3ad389 delivered, #70b8ff opened, #baa7ff clicked, #ff9592 bounced, #ffca16 complained.
-
-### Email Address Badge
-**Role:** 'from:' addresses in code samples and UI
-
-No background, Commit Mono at 12-14px, text color #9281f7 (Iris Violet). The violet-on-black makes email identifiers the most readable code element — a deliberate developer-UX choice.
-
-### Icon Container
-**Role:** Rounded-square containers for app icons in integrations grid
-
-32x32 or 48x48 rounded square (16px radius), subtle gradient fill (oklab violet→magenta), white or violet stroke icon inside. Creates the only chromatic surface on the page.
-
-### 3D Hero Cube
-**Role:** WebGL-rendered black geometric cube in hero
-
-Full-opacity black cube with subtle edge highlights in #292d30, rotating slowly. No glow, no color — a sculptural object that anchors the right side of the hero against the black canvas.
-
-### Footer Link Row
-**Role:** Minimal footer with two text links
-
-Two text links ('Privacy', 'Terms') at 14px Inter in #a1a4a5, separated by space, no decorative elements. Footer is intentionally minimal — no logo, no columns.
+### Tooltips
+`#0F172A` background, `#F8FAFC` DM Sans 12px/400 text, `6px 12px` padding,
+8px radius, 6px triangle, 240px max width, 150ms show / 0ms hide.
 
 ## Do's and Don'ts
-
-### Do
-- Use pure #000000 as the page canvas — never off-black or tinted dark grays for the background.
-- Separate all UI layers with 1px borders in #292d30, not shadows. Cards, inputs, code blocks all rely on hairline borders against the black canvas.
-- Use Commit Mono for any code, email address, or developer-facing string. Keep Inter for prose and UI chrome.
-- Keep buttons ghost/outlined: transparent fill, 1px border, white text. Never use a filled colorful button as the primary CTA.
-- Use 6px radius for buttons, badges, inputs. Use 16px radius for cards and code windows. Never mix — the radius scale is two values.
-- Let Iris Violet (#9281f7) mark code strings and developer identifiers. It is the only brand color and should feel like syntax highlighting, not decoration.
-- Apply tight -0.05em letter-spacing at 56px display sizes and -0.01em at 96px hero sizes. The compressed tracking is what makes the headlines feel confident.
-
-### Don't
-- Don't add gradients, glows, or chromatic washes to the hero or section backgrounds. The canvas is flat black.
-- Don't use filled accent-color buttons (blue, violet, green) as primary actions. Buttons stay ghost or white-text-on-black.
-- Don't use multiple border radii on a single surface. Cards are 16px, buttons/badges/inputs are 6px — pick one per component.
-- Don't introduce colored card backgrounds. Cards sit on black with hairline borders; no #292d30 fills.
-- Don't use shadows for elevation. The design relies on 1px borders and subtle backdrop blurs, not drop shadows.
-- Don't pair Iris Violet with large type as a decorative heading color. It belongs to code and developer identifiers only.
-- Don't break the monochrome-with-one-violet discipline by adding multiple accent hues to UI chrome. The status colors (green, blue, red, amber) are reserved for data/status indicators.
-
-## Surfaces
-
-| Level | Name | Value | Purpose |
-|-------|------|-------|---------|
-| 0 | Void | `#000000` | Primary page canvas, full-bleed black |
-| 1 | Graphite | `#292d30` | Hairline borders defining card and input surfaces against the void |
-| 2 | Surface Lift | `#0b0e14` | Elevated panels and overlay scrims via subtle gradient |
-| 3 | Backdrop Blur | `#000000f2` | Modal and navigation overlays with blur(25px) |
-
-## Elevation
-
-Elevation is achieved through 1px hairline borders (#292d30) against a flat black canvas, never through drop shadows. The only shadow token in active use is a faint 1px ring (rgba(176, 199, 217, 0.145)) on icon containers, used sparingly to suggest a subtle light source rather than depth.
-
-## Imagery
-
-Imagery is almost entirely WebGL-rendered 3D objects (black cube in hero, rotating geometric forms) and inline product UI screenshots shown inside dark code windows. No photography, no illustrations, no lifestyle imagery. Logos in the trust bar are inline SVGs at native colors. Icons are 1px-1.5px stroke outlines in #f0f0f0 or #a1a4a5. The visual language is: black canvas, 3D object as hero anchor, dark code windows as product proof, white SVG logos as social proof. Nothing decorative — every visual element is either structural (cube) or demonstrative (code window, logo).
-
-## Agent Prompt Guide
-
-Quick Color Reference:
-- text/heading: #ffffff
-- text/body: #f0f0f0
-- text/muted: #a1a4a5
-- background/canvas: #000000
-- border/hairline: #292d30
-- accent/code: #9281f7
-- primary action: #3b9eff (filled action)
-
-3-5 Example Component Prompts:
-
-1. Create a section headline: 'Integrate tonight' at 56px aBCFavorit weight 400, color #ffffff, letter-spacing -2.8px, line-height 1.2. Below it, body copy at 18px Inter weight 400, color #a1a4a5. Section sits on a #000000 canvas with no border.
-
-2. Create a code terminal window: #000000 background, 1px border in #292d30, 16px radius, padding 24px. Content in Commit Mono at 14px. Email address strings colored #9281f7, keywords colored #f0f0f0, success values colored #3ad389. Optional 3 traffic-light dots (8px circles) in top-left.
-
-3. Create a navigation bar: transparent background, Resend wordmark logo on left (white), nav items ('Features', 'Company', 'Resources') in Inter 14px weight 400, color #f0f0f0. On the right, a 'Get started' button — transparent fill, 1px border in #292d30, white text, 6px radius, 8px 16px padding. The bar sits on #000000 with no separator.
-
-4. Create a testimonial card: #000000 background, 1px border in #292d30, 16px radius, 32px padding. Quote text in Inter 16px weight 400, color #f0f0f0. Below: 32px circular avatar, name in Inter 14px weight 500 #f0f0f0, role/title in #a1a4a5. No shadow.
-
-5. Create a status indicator row: inline pill with a 2px circle dot in #3ad389 followed by 'Delivered' label in Commit Mono 12px, color #a1a4a5. Dot indicates email event status. No background, no border, sits inline within a dark code window.
-
-## Similar Brands
-
-- **Linear** — Same black-canvas, hairline-border aesthetic with restrained chromatic accents and sharp typography
-- **Vercel** — Near-identical pure-black backgrounds with white typography and minimal border-based elevation
-- **Plaid** — Dark-mode developer-tool identity with monospaced code emphasis and single-accent palette
-- **Railway** — Black canvas with terminal-style code windows as the primary product showcase
-- **Stripe (dark mode)** — Editorially confident display type on black with hairline borders and ghost buttons
-
-## Quick Start
-
-### CSS Custom Properties
-
-```css
-:root {
-  /* Colors */
-  --color-void-black: #000000;
-  --color-graphite-hairline: #292d30;
-  --color-white: #ffffff;
-  --color-bone-white: #f0f0f0;
-  --color-ash-gray: #a1a4a5;
-  --color-smoke-gray: #abafb4;
-  --color-iron: #6e727a;
-  --color-charcoal: #464a4d;
-  --color-iris-violet: #9281f7;
-  --gradient-iris-violet: linear-gradient(to right bottom in oklab, rgb(146, 129, 247) 0%, rgb(154, 84, 220) 100%);
-  --color-iris-violet-glow: #baa7ff;
-  --color-signal-blue: #3b9eff;
-  --color-sky-blue: #70b8ff;
-  --color-pulse-green: #3ad389;
-  --color-alarm-red: #ff9592;
-  --color-crimson: #ff6465;
-  --color-amber: #ffca16;
-  --color-amber-glow: #ffd60a;
-  --color-surface-gradient: #0b0e14;
-  --gradient-surface-gradient: linear-gradient(rgb(27, 27, 27), rgb(3, 3, 3));
-
-  /* Typography — Font Families */
-  --font-inter: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-domaine: 'Domaine', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-abc-favorit: 'aBC Favorit', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-commit-mono: 'Commit Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  --font-helvetica: 'Helvetica', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-apple-system: '-apple-system', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-
-  /* Typography — Scale */
-  --text-caption: 12px;
-  --leading-caption: 1.33;
-  --tracking-caption: 0px;
-  --text-body-sm: 14px;
-  --leading-body-sm: 1.43;
-  --tracking-body-sm: 0px;
-  --text-body: 16px;
-  --leading-body: 1.5;
-  --tracking-body: 0px;
-  --text-subheading: 20px;
-  --leading-subheading: 1;
-  --tracking-subheading: 0px;
-  --text-heading-sm: 24px;
-  --leading-heading-sm: 1.5;
-  --tracking-heading-sm: 0px;
-  --text-heading: 56px;
-  --leading-heading: 1.2;
-  --tracking-heading: -2.8px;
-  --text-heading-lg: 77px;
-  --leading-heading-lg: 1;
-  --tracking-heading-lg: -0.77px;
-  --text-display: 96px;
-  --leading-display: 1;
-  --tracking-display: -0.96px;
-
-  /* Typography — Weights */
-  --font-weight-regular: 400;
-  --font-weight-medium: 500;
-  --font-weight-semibold: 600;
-  --font-weight-bold: 700;
-
-  /* Spacing */
-  --spacing-unit: 4px;
-  --spacing-4: 4px;
-  --spacing-8: 8px;
-  --spacing-12: 12px;
-  --spacing-16: 16px;
-  --spacing-20: 20px;
-  --spacing-24: 24px;
-  --spacing-28: 28px;
-  --spacing-32: 32px;
-  --spacing-40: 40px;
-  --spacing-48: 48px;
-  --spacing-64: 64px;
-  --spacing-80: 80px;
-  --spacing-96: 96px;
-  --spacing-104: 104px;
-  --spacing-144: 144px;
-
-  /* Layout */
-  --page-max-width: 1200px;
-  --section-gap: 96px;
-  --card-padding: 32px;
-  --element-gap: 16px;
-
-  /* Border Radius */
-  --radius-md: 6px;
-  --radius-lg: 10px;
-  --radius-2xl: 16px;
-  --radius-3xl: 24px;
-
-  /* Named Radii */
-  --radius-cards: 16px;
-  --radius-badges: 6px;
-  --radius-inputs: 6px;
-  --radius-buttons: 6px;
-  --radius-large-panels: 24px;
-
-  /* Shadows */
-  --shadow-subtle: rgba(176, 199, 217, 0.145) 0px 0px 0px 1px;
-  --shadow-subtle-2: rgb(0, 0, 0) 0px 0px 0px 8px;
-  --shadow-subtle-3: rgba(0, 0, 0, 0.1) 0px 1px 3px 0px, rgba(0, 0, 0, 0.1) 0px 1px 2px -1px;
-
-  /* Surfaces */
-  --surface-void: #000000;
-  --surface-graphite: #292d30;
-  --surface-surface-lift: #0b0e14;
-  --surface-backdrop-blur: #000000f2;
-}
-```
-
-### Tailwind v4
-
-```css
-@theme {
-  /* Colors */
-  --color-void-black: #000000;
-  --color-graphite-hairline: #292d30;
-  --color-white: #ffffff;
-  --color-bone-white: #f0f0f0;
-  --color-ash-gray: #a1a4a5;
-  --color-smoke-gray: #abafb4;
-  --color-iron: #6e727a;
-  --color-charcoal: #464a4d;
-  --color-iris-violet: #9281f7;
-  --color-iris-violet-glow: #baa7ff;
-  --color-signal-blue: #3b9eff;
-  --color-sky-blue: #70b8ff;
-  --color-pulse-green: #3ad389;
-  --color-alarm-red: #ff9592;
-  --color-crimson: #ff6465;
-  --color-amber: #ffca16;
-  --color-amber-glow: #ffd60a;
-  --color-surface-gradient: #0b0e14;
-
-  /* Typography */
-  --font-inter: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-domaine: 'Domaine', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-abc-favorit: 'aBC Favorit', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-commit-mono: 'Commit Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  --font-helvetica: 'Helvetica', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-apple-system: '-apple-system', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-
-  /* Typography — Scale */
-  --text-caption: 12px;
-  --leading-caption: 1.33;
-  --tracking-caption: 0px;
-  --text-body-sm: 14px;
-  --leading-body-sm: 1.43;
-  --tracking-body-sm: 0px;
-  --text-body: 16px;
-  --leading-body: 1.5;
-  --tracking-body: 0px;
-  --text-subheading: 20px;
-  --leading-subheading: 1;
-  --tracking-subheading: 0px;
-  --text-heading-sm: 24px;
-  --leading-heading-sm: 1.5;
-  --tracking-heading-sm: 0px;
-  --text-heading: 56px;
-  --leading-heading: 1.2;
-  --tracking-heading: -2.8px;
-  --text-heading-lg: 77px;
-  --leading-heading-lg: 1;
-  --tracking-heading-lg: -0.77px;
-  --text-display: 96px;
-  --leading-display: 1;
-  --tracking-display: -0.96px;
-
-  /* Spacing */
-  --spacing-4: 4px;
-  --spacing-8: 8px;
-  --spacing-12: 12px;
-  --spacing-16: 16px;
-  --spacing-20: 20px;
-  --spacing-24: 24px;
-  --spacing-28: 28px;
-  --spacing-32: 32px;
-  --spacing-40: 40px;
-  --spacing-48: 48px;
-  --spacing-64: 64px;
-  --spacing-80: 80px;
-  --spacing-96: 96px;
-  --spacing-104: 104px;
-  --spacing-144: 144px;
-
-  /* Border Radius */
-  --radius-md: 6px;
-  --radius-lg: 10px;
-  --radius-2xl: 16px;
-  --radius-3xl: 24px;
-
-  /* Shadows */
-  --shadow-subtle: rgba(176, 199, 217, 0.145) 0px 0px 0px 1px;
-  --shadow-subtle-2: rgb(0, 0, 0) 0px 0px 0px 8px;
-  --shadow-subtle-3: rgba(0, 0, 0, 0.1) 0px 1px 3px 0px, rgba(0, 0, 0, 0.1) 0px 1px 2px -1px;
-}
-```
+1. Do use navy + white contrast as the primary visual rhythm; sage is reserved
+   for interactive elements and positive states only.
+2. Do lean on generous whitespace — health interfaces should never feel cramped.
+3. Do use the softer 8px radius consistently.
+4. Don't introduce harsh neons or saturated accents.
+5. Don't use condensed or decorative fonts.
+6. Do use uppercase chip labels with tracking.
+7. Don't overload dashboards with dense data; use progressive disclosure.
+8. Do include clear iconography alongside text labels.
+9. Don't use heavy drop shadows; the diffused elevation system maintains the
+   clean, clinical aesthetic.
+10. Do use Fira Code for clear tabular numeral alignment in data and vitals.

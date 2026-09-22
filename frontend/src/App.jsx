@@ -1,24 +1,24 @@
 import React, { useEffect, useState } from "react";
 import {
-  Activity,
+  AudioLines,
   Boxes,
-  ExternalLink,
   FolderGit2,
-  Heart,
+  Gauge,
+  LayoutGrid,
   LogOut,
   Menu,
-  Octagon,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
   Settings,
-  ShieldCheck,
+  Stethoscope,
   X,
 } from "lucide-react";
 import { api, getToken, setToken } from "./api.js";
 import StatusPanel from "./components/StatusPanel.jsx";
 import ConfigPanel from "./components/ConfigPanel.jsx";
 import AccountsPanel from "./components/AccountsPanel.jsx";
+import AudiblePanel from "./components/AudiblePanel.jsx";
 import {
   Badge,
   Button,
@@ -28,15 +28,75 @@ import {
   Spinner,
 } from "./components/ui.jsx";
 
+/* ---------------------------------------------------------------
+   iftools — Verdana Health Design System
+   Sections: Dashboard · GitHub Register · Audible · Accounts
+   --------------------------------------------------------------- */
+
 const NAV = [
-  { id: "status", label: "Status", icon: Activity },
-  { id: "config", label: "Config", icon: Settings },
-  { id: "accounts", label: "Accounts", icon: Boxes },
+  { id: "dashboard", label: "Dashboard", sub: "Overview", icon: LayoutGrid },
+  { id: "github", label: "GitHub Register", sub: "Bulk account creation", icon: FolderGit2 },
+  { id: "audible", label: "Audible FP", sub: "Forgot-password checker", icon: AudioLines },
+  { id: "accounts", label: "Accounts", sub: "GitHub + Audible results", icon: Boxes },
+  { id: "config", label: "Config", sub: "Settings", icon: Settings },
 ];
+
+function Launcher({ onOpen, active }) {
+  const cards = [
+    {
+      id: "github",
+      label: "GitHub Register",
+      icon: FolderGit2,
+      title: "GitHub Account Registration",
+      blurb:
+        "Bulk-create GitHub accounts with mailcow email, OTP verification, profile setup, codebuddy.ai registration and 9router injection.",
+      badge: "Production",
+    },
+    {
+      id: "audible",
+      label: "Audible FP Checker",
+      icon: AudioLines,
+      title: "Audible Forgot-Password Checker",
+      blurb:
+        "Batch-validate Audible.de accounts via forgot-password flow with fingerprint stealth, IMAP OTP retrieval and proxy rotation.",
+      badge: "Production",
+    },
+  ];
+  return (
+    <div className="tool-grid">
+      {cards.map((t) => {
+        const Icon = t.icon;
+        const isActive = active === t.id;
+        return (
+          <button
+            key={t.id}
+            type="button"
+            className="tool-card"
+            onClick={() => onOpen(t.id)}
+            aria-pressed={isActive}
+          >
+            <span className="tool-card-strip">
+              <Icon size={16} />
+              <strong>{t.label}</strong>
+            </span>
+            <span className="tool-card-body">
+              <strong>{t.title}</strong>
+              <p>{t.blurb}</p>
+            </span>
+            <span className="tool-card-foot">
+              <Badge tone={isActive ? "accent" : "muted"}>{t.badge}</Badge>
+              <Badge tone="success">Online</Badge>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 export default function App() {
   const [auth, setAuth] = useState(null);
-  const [tab, setTab] = useState("status");
+  const [tab, setTab] = useState("dashboard");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [running, setRunning] = useState(false);
@@ -86,6 +146,12 @@ export default function App() {
     setGroup(name);
     setTab("accounts");
     setDrawerOpen(false);
+  }
+
+  function openTab(id) {
+    setTab(id);
+    setDrawerOpen(false);
+    if (id === "accounts") setGroup("");
   }
 
   // Drawer is a mobile-only surface: close on Escape and when returning to desktop.
@@ -161,9 +227,9 @@ export default function App() {
       <main className="app-login">
         <Card className="app-login-card">
           <div className="app-login-mark">
-            <ShieldCheck size={26} />
+            <Stethoscope size={26} />
           </div>
-          <h1>GitHub Register</h1>
+          <h1>iftools</h1>
           <p>Enter your username and password to open the console.</p>
           <Input
             type="text"
@@ -189,10 +255,13 @@ export default function App() {
     );
 
   const ActivePanel = {
-    status: StatusPanel,
-    config: ConfigPanel,
+    dashboard: StatusPanel,
+    github: StatusPanel,
+    audible: AudiblePanel,
     accounts: AccountsPanel,
+    config: ConfigPanel,
   }[tab];
+
   return (
     <div
       className={`${sidebarOpen ? "app-shell" : "app-shell app-shell-collapsed"}${drawerOpen ? " app-drawer-open" : ""}`}
@@ -201,9 +270,9 @@ export default function App() {
       <header className="app-topbar">
         <div className="app-topbar-brand">
           <div className="app-brand-icon">
-            <Octagon size={18} />
+            <Stethoscope size={18} />
           </div>
-          <strong>GitHub Register</strong>
+          <strong>iftools</strong>
         </div>
         <div className="app-topbar-right">
           <Badge tone={running ? "success" : "muted"}>
@@ -235,17 +304,17 @@ export default function App() {
         <div className="app-sidebar-top">
           <div className="app-brand">
             <div className="app-brand-icon">
-              <Octagon size={20} />
+              <Stethoscope size={20} />
             </div>
             <div className="app-brand-copy">
-              <strong>GitHub Register</strong>
+              <strong>iftools</strong>
               <a
                 className="app-brand-link"
-                href="https://github.com/mhiqrambg/github-regkit-mibp"
+                href="https://jamurhiratake.com"
                 target="_blank"
                 rel="noreferrer"
               >
-                MIBP DEV
+                Hiratake Labs
               </a>
             </div>
           </div>
@@ -273,16 +342,13 @@ export default function App() {
           </Button>
         </div>
         <nav className="app-nav">
-          {NAV.map(({ id, label, icon: Icon }) => (
+          {NAV.map(({ id, label, sub, icon: Icon }) => (
             <button
               key={id}
+              type="button"
               className={tab === id ? "app-nav-item active" : "app-nav-item"}
-              onClick={() => {
-                setTab(id);
-                setDrawerOpen(false);
-                if (id === "accounts") setGroup("");
-              }}
-              title={label}
+              onClick={() => openTab(id)}
+              title={`${label} — ${sub}`}
             >
               <Icon size={17} />
               <span>{label}</span>
@@ -360,60 +426,55 @@ export default function App() {
           )}
           <a
             className="app-support"
-            href="https://trakteer.id/mhiqrambg/tip"
+            href="https://jamurhiratake.com"
             target="_blank"
             rel="noreferrer"
-            title="Support on Trakteer"
+            title="Hiratake Labs"
           >
-            <Heart size={12} />
-            <span>Support</span>
-          </a>
-          <a
-            className="app-credit"
-            href="https://github.com/mhiqrambg/github-regkit-mibp"
-            target="_blank"
-            rel="noreferrer"
-            title="mhiqrambg/github-regkit-mibp"
-          >
-            <ExternalLink size={12} />
-            <span>mhiqrambg/github-regkit-mibp</span>
+            <Gauge size={12} />
+            <span>Hiratake Labs</span>
           </a>
         </div>
       </aside>
-      <main className="app-main" key={tab}>
-        <ActivePanel
-          onGotoAccounts={() => {
-            setTab("accounts");
-            setGroup("");
-          }}
-          onGotoStatus={() => {
-            setTab("status");
-          }}
-          group={group}
-          onClearGroup={() => setGroup("")}
-          onGroupsChanged={loadGroups}
-        />
+      <main className="app-main" key={tab + group}>
+        {tab === "dashboard" ? (
+          <StatusPanel
+            onGotoAccounts={() => openTab("accounts")}
+            onGotoGitHub={() => openTab("github")}
+          />
+        ) : tab === "github" ? (
+          <StatusPanel
+            onGotoAccounts={() => openTab("accounts")}
+            onGotoGitHub={() => openTab("github")}
+          />
+        ) : tab === "audible" ? (
+          <AudiblePanel />
+        ) : tab === "accounts" ? (
+          <AccountsPanel
+            group={group}
+            onClearGroup={() => setGroup("")}
+            onGroupsChanged={loadGroups}
+            onGotoStatus={() => openTab("github")}
+          />
+        ) : (
+          <ConfigPanel />
+        )}
       </main>
 
-      {/* Mobile bottom nav: the three primary destinations, one thumb away. */}
+      {/* Mobile bottom nav: the primary destinations, one thumb away. */}
       <nav className="app-bottomnav" aria-label="Primary">
         {NAV.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             type="button"
             className={
-              tab === id
-                ? "app-bottomnav-item active"
-                : "app-bottomnav-item"
+              tab === id ? "app-bottomnav-item active" : "app-bottomnav-item"
             }
-            onClick={() => {
-              setTab(id);
-              if (id === "accounts") setGroup("");
-            }}
+            onClick={() => openTab(id)}
             aria-current={tab === id ? "page" : undefined}
           >
             <Icon size={19} />
-            <span>{label}</span>
+            <span>{label === "GitHub Register" ? "Register" : label}</span>
           </button>
         ))}
       </nav>
@@ -454,27 +515,6 @@ export default function App() {
             <code>.</code> (maks 60 karakter).
           </div>
         </div>
-      </Dialog>
-
-      <Dialog
-        open={!!groupDelete}
-        onClose={() => setGroupDelete(null)}
-        title="Delete this group?"
-        footer={
-          <>
-            <Button onClick={() => setGroupDelete(null)}>Cancel</Button>
-            <Button
-              variant="destructive"
-              onClick={doDeleteGroup}
-              disabled={groupBusy}
-            >
-              <X size={15} /> Delete
-            </Button>
-          </>
-        }
-      >
-        Group <strong>{groupDelete}</strong> will be deleted. Accounts inside
-        are kept, only removed from the group.
       </Dialog>
     </div>
   );

@@ -21,6 +21,7 @@ import requests
 from .config import Config
 from .litensi import LitensiClient, LitensiError
 from .mail_errors import MailboxCancelled, MailboxTimeoutError
+from .imapmail import ImapMailClient, ImapMailError
 from .mailcx import MailCxClient, MailCxError
 from .profiles import (
     generate_password,
@@ -1974,6 +1975,33 @@ def _post_form_flow(
                 _complete_profile(page, username, cfg, log)
             except Exception as exc:
                 log(f"[i] profile stage skipped (account still saved): {exc}")
+            # ---- stage 6: auto-register codebuddy.ai via GitHub OAuth ──────
+            if cfg.codebuddy:
+                try:
+                    from .codebuddy import (
+                        register_codebuddy,
+                        save_codebuddy_credentials,
+                    )
+                    cb = register_codebuddy(
+                        page, context, email, password, log=log
+                    )
+                    cb["github_username"] = username
+                    save_codebuddy_credentials(cb, ACCOUNTS_DIR, log)
+                except Exception as exc:
+                    log(f"[i] codebuddy registration skipped: {exc}")
+            # ---- stage 7: inject into 9router dashboard ─────────────────────
+            if cfg.router9_url:
+                try:
+                    from .router9 import inject_github_provider
+                    inject_github_provider(
+                        cfg.router9_url,
+                        cfg.router9_password,
+                        context,
+                        email,
+                        log=log,
+                    )
+                except Exception as exc:
+                    log(f"[i] 9router injection skipped: {exc}")
         try:
             _save_trust_cookie(context, log)  # persist DataDome trust for the next fresh run
         except Exception as exc:
@@ -2177,6 +2205,15 @@ def register_one(
             api_key=cfg.litensi_api_key,
             site=cfg.litensi_site,
             zone=cfg.litensi_zone,
+        )
+    elif provider == "imap":
+        mail = ImapMailClient(
+            host=cfg.imap_host,
+            port=cfg.imap_port,
+            username=cfg.imap_username,
+            password=cfg.imap_password,
+            domain=cfg.imap_domain,
+            ssl=cfg.imap_ssl,
         )
     else:
         mail = MailCxClient(domain=cfg.mailcx_domain)

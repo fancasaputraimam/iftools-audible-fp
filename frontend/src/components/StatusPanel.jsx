@@ -33,7 +33,7 @@ const fmtDuration = (sec) => {
   return h > 0 ? `${pad(h)}.${pad(m)}.${pad(r)}` : `${pad(m)}.${pad(r)}`;
 };
 
-export default function StatusPanel({ onGotoAccounts }) {
+export default function StatusPanel({ onGotoAccounts, onGotoGitHub }) {
   const [state, setState] = useState(null);
   const [count, setCount] = useState(1);
   const [busy, setBusy] = useState(false);
@@ -150,6 +150,10 @@ export default function StatusPanel({ onGotoAccounts }) {
         <div style={styles.heroText}>
           <div style={styles.eyebrow}>GITHUB ACCOUNT REGISTRATION</div>
           <h1 style={styles.heroTitle}>{statusInfo.title}</h1>
+          <p style={styles.heroSub}>
+            Bulk registration with mailcow email, OTP verification, profile,
+            codebuddy and 9router injection.
+          </p>
         </div>
         <Badge
           tone={
@@ -198,12 +202,12 @@ export default function StatusPanel({ onGotoAccounts }) {
       {target > 0 && (
         <Card style={styles.progressCard}>
           <div style={styles.progressHead}>
-            <span style={{ color: "var(--muted)", fontWeight: 600 }}>
+            <span style={{ color: "var(--text-3)", fontWeight: 600 }}>
               Progress
             </span>
             <span style={{ fontWeight: 700 }}>
               {done} / {target}{" "}
-              <span style={{ color: "var(--muted)", fontWeight: 500 }}>
+              <span style={{ color: "var(--text-3)", fontWeight: 500 }}>
                 ({progress}%)
               </span>
             </span>
@@ -220,10 +224,10 @@ export default function StatusPanel({ onGotoAccounts }) {
           </div>
           {(success > 0 || failed > 0) && (
             <div style={styles.progressLegend}>
-              <span style={{ color: "var(--ok)" }}>● {success} success</span>
-              <span style={{ color: "var(--danger)" }}>● {failed} failed</span>
+              <span style={{ color: "var(--success-deep)" }}>● {success} success</span>
+              <span style={{ color: "var(--danger-deep)" }}>● {failed} failed</span>
               {running && target - done > 0 && (
-                <span style={{ color: "var(--muted)" }}>
+                <span style={{ color: "var(--text-3)" }}>
                   ● {target - done} pending
                 </span>
               )}
@@ -330,9 +334,9 @@ export default function StatusPanel({ onGotoAccounts }) {
 function Stat({ label, value, tone, small, icon: Icon, hint }) {
   const color =
     tone === "ok"
-      ? "var(--ok)"
+      ? "var(--success-deep)"
       : tone === "bad"
-        ? "var(--danger)"
+        ? "var(--danger-deep)"
         : "var(--text)";
   return (
     <div className="status-stat">
@@ -355,7 +359,7 @@ function Stat({ label, value, tone, small, icon: Icon, hint }) {
 function progressFillColor(tone, running) {
   if (tone === "bad") return "var(--danger)";
   if (tone === "muted" && !running) return "var(--border-strong)";
-  return "var(--accent)";
+  return "var(--sage)";
 }
 function progressGlow(tone) {
   return "none";
@@ -377,13 +381,12 @@ const styles = {
     alignItems: "flex-start",
     justifyContent: "space-between",
     flexWrap: "wrap",
-    background:
-      "var(--bg-card)",
+    background: "var(--surface)",
   },
   heroText: { flex: "1 1 260px", minWidth: 0 },
   eyebrow: {
     fontSize: 11.5,
-    color: "var(--muted)",
+    color: "var(--text-3)",
     fontWeight: 700,
     letterSpacing: 0.6,
     marginBottom: 6,
@@ -393,7 +396,14 @@ const styles = {
     fontWeight: 800,
     letterSpacing: -0.4,
     lineHeight: 1.2,
-    color: "var(--text-primary)",
+    color: "var(--text)",
+  },
+  heroSub: {
+    margin: "8px 0 0",
+    fontSize: 13.5,
+    lineHeight: 1.5,
+    color: "var(--text-3)",
+    maxWidth: 520,
   },
 
   metricsCard: { padding: 0, overflow: "hidden" },
@@ -410,7 +420,7 @@ const styles = {
   progressTrack: {
     height: 10,
     borderRadius: 4,
-    background: "var(--bg-input)",
+    background: "var(--surface-2)",
     overflow: "hidden",
   },
   progressFill: {
@@ -430,5 +440,6 @@ const styles = {
   errorCard: {
     padding: "14px 18px",
     borderColor: "rgba(var(--danger-rgb),0.4)",
+    background: "var(--danger-soft)",
   },
 };

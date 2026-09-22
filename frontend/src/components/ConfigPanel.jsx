@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Search, Save, Mail, Shield, X, RefreshCw } from "lucide-react";
+import { Search, Save, Mail, Shield, X, RefreshCw, FolderOpen } from "lucide-react";
 import { api } from "../api.js";
 import { Button, Card, Input, Spinner } from "./ui.jsx";
 
@@ -289,7 +289,7 @@ export default function ConfigPanel() {
         <div style={styles.col}>
           {/* ── Mail Provider card ── */}
           <Card style={styles.card}>
-            <div style={styles.groupTitle}>Mail Provider</div>
+            <div className="ui-group-title">Mail Provider</div>
 
             {/* radio toggle */}
             <div style={styles.providerRow}>
@@ -306,13 +306,13 @@ export default function ConfigPanel() {
                   size={16}
                   style={{
                     color:
-                      provider === "mailcx" ? "var(--accent)" : "var(--muted)",
+                      provider === "mailcx" ? "var(--sage)" : "var(--text-3)",
                   }}
                 />
                 <span
                   style={{
                     color:
-                      provider === "mailcx" ? "var(--text)" : "var(--muted)",
+                      provider === "mailcx" ? "var(--text)" : "var(--text-3)",
                   }}
                 >
                   Mail.cx <span style={styles.badge}>Free</span>
@@ -331,13 +331,13 @@ export default function ConfigPanel() {
                   size={16}
                   style={{
                     color:
-                      provider === "litensi" ? "var(--accent)" : "var(--muted)",
+                      provider === "litensi" ? "var(--sage)" : "var(--text-3)",
                   }}
                 />
                 <span
                   style={{
                     color:
-                      provider === "litensi" ? "var(--text)" : "var(--muted)",
+                      provider === "litensi" ? "var(--text)" : "var(--text-3)",
                   }}
                 >
                   Litensi <span style={styles.badgePaid}>Paid</span>
@@ -416,7 +416,7 @@ export default function ConfigPanel() {
           <span
             style={{
               fontSize: 13,
-              color: saved === "Configuration saved" ? "var(--ok)" : "var(--danger)",
+              color: saved === "Configuration saved" ? "var(--success-deep)" : "var(--danger)",
             }}
           >
             {saved}
@@ -446,7 +446,7 @@ export default function ConfigPanel() {
 function GroupCard({ name, fields, cfg, set }) {
   return (
     <Card style={styles.card}>
-      <div style={styles.groupTitle}>{name}</div>
+      <div className="ui-group-title">{name}</div>
       <div style={styles.fieldsGrid} className="cfg-fields">
         {fields.map((f) => (
           <div
@@ -518,7 +518,7 @@ function ProxyField({ f, cfg, set }) {
           />
           <span
             style={{
-              color: mode === "url" ? "var(--text)" : "var(--muted)",
+              color: mode === "url" ? "var(--text)" : "var(--text-3)",
               fontSize: 13,
             }}
           >
@@ -535,7 +535,7 @@ function ProxyField({ f, cfg, set }) {
           />
           <span
             style={{
-              color: mode === "file" ? "var(--text)" : "var(--muted)",
+              color: mode === "file" ? "var(--text)" : "var(--text-3)",
               fontSize: 13,
             }}
           >
@@ -545,18 +545,21 @@ function ProxyField({ f, cfg, set }) {
       </div>
       {mode === "file" ? (
         <>
-          <input
-            type="file"
-            accept=".txt,text/plain"
-            disabled={busy}
-            onChange={onPick}
-            style={{ fontSize: 13, color: "var(--muted)" }}
-          />
+          <label className="ui-button ui-button-sm" style={{ cursor: 'pointer' }}>
+            <FolderOpen size={15} /> Choose proxies.txt
+            <input
+              type="file"
+              accept=".txt,text/plain"
+              disabled={busy}
+              onChange={onPick}
+              hidden
+            />
+          </label>
           {status && (
             <span
               style={{
-                fontSize: 12.5,
-                color: msgError ? "var(--danger)" : "var(--ok)",
+                fontSize: 12,
+                color: msgError ? "var(--danger-deep)" : "var(--success-deep)",
               }}
             >
               {status}
@@ -593,9 +596,9 @@ function Field({ f, value, onChange, onCheckZones }) {
           type="checkbox"
           checked={!!value}
           onChange={(e) => onChange(e.target.checked)}
-          style={{ width: 18, height: 18, flex: "none", accentColor: "var(--accent)" }}
+          style={{ width: 18, height: 18, flex: "none", accentColor: "var(--sage)" }}
         />
-        <span style={{ fontSize: 13, color: "var(--text)" }}>{f.label}</span>
+        <span style={{ fontSize: 14, color: "var(--text)" }}>{f.label}</span>
       </label>
     );
   }
@@ -680,17 +683,17 @@ function ZoneModal({
             <div style={styles.errorBox}>
               <div
                 style={{
-                  color: "var(--danger)",
+                  color: "var(--danger-deep)",
                   fontWeight: 600,
                   marginBottom: 6,
                 }}
               >
-                  Failed
+                Failed
               </div>
               <div
                 style={{
-                  fontSize: 12.5,
-                  color: "var(--muted)",
+                  fontSize: 13,
+                  color: "var(--text-3)",
                   wordBreak: "break-word",
                 }}
               >
@@ -716,11 +719,11 @@ function ZoneModal({
                 <span>
                   Total: <b>{zones.length}</b>
                 </span>
-                <span style={{ color: "var(--ok)" }}>
+                <span style={{ color: "var(--success-deep)" }}>
                   Available: <b>{zones.filter((z) => z.stock > 0).length}</b>
                 </span>
                 {data.cheapest && (
-                  <span style={{ color: "var(--accent)" }}>
+                  <span style={{ color: "var(--sage)" }}>
                     Cheapest: <b>{data.cheapest}</b>
                   </span>
                 )}
@@ -797,7 +800,7 @@ function ZoneModal({
                               style={{
                                 color: outOfStock
                                   ? "var(--danger)"
-                                  : "var(--ok)",
+                                  : "var(--success-deep)",
                                 fontWeight: 600,
                               }}
                             >
@@ -877,26 +880,18 @@ const styles = {
     alignItems: "start",
   },
   col: { display: "flex", flexDirection: "column", gap: 14, minWidth: 0 },
-  card: { padding: 22, minWidth: 0 },
-  groupTitle: {
-    fontSize: 11.5,
-    fontWeight: 700,
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-    color: "var(--text-muted)",
-    marginBottom: 16,
-  },
+  card: { padding: 24, minWidth: 0 },
   fieldsGrid: { display: "grid", gap: "14px 16px" },
   fieldHalf: { minWidth: 0 },
   fieldWide: { minWidth: 0 },
   field: {
     display: "flex",
     flexDirection: "column",
-    gap: 7,
-    fontSize: 13,
-    color: "var(--muted)",
+    gap: 6,
+    fontSize: 14,
+    color: "var(--text-2)",
   },
-  label: { fontWeight: 500 },
+  label: { fontWeight: 500, fontSize: 12, color: "var(--text-2)" },
   inputRow: {
     display: "flex",
     gap: 8,
@@ -906,14 +901,15 @@ const styles = {
   select: {
     flex: 1,
     minWidth: 0,
-    padding: "10px 12px",
-    fontSize: 13,
-    background: "var(--bg-input)",
+    padding: "10px 14px",
+    fontSize: 14,
+    background: "var(--surface)",
     color: "var(--text)",
     border: "1px solid var(--border)",
-    borderRadius: 8,
+    borderRadius: "var(--r)",
     outline: "none",
     cursor: "pointer",
+    minHeight: 42,
   },
   saveBar: {
     padding: 18,
@@ -924,53 +920,64 @@ const styles = {
     bottom: 0,
     flexWrap: "wrap",
     zIndex: 5,
+    background: "var(--surface)",
+    border: "1px solid var(--border)",
+    borderRadius: "var(--r)",
+    boxShadow: "var(--shadow-md)",
   },
   providerRow: {
     display: "flex",
     gap: 10,
-    marginBottom: 18,
+    marginBottom: 20,
     flexWrap: "wrap",
   },
   radioLabel: {
     display: "flex",
     alignItems: "center",
     gap: 8,
-    minHeight: 44,
+    minHeight: 42,
     padding: "10px 16px",
-    borderRadius: "var(--radius-control)",
+    borderRadius: "var(--r)",
     cursor: "pointer",
     border: "1px solid var(--border)",
-    background: "transparent",
-    transition: "border-color 150ms ease-out, color 150ms ease-out",
-    fontSize: 13.5,
+    background: "var(--surface)",
+    transition: "border-color 150ms ease-out, color 150ms ease-out, background 150ms ease-out",
+    fontSize: 14,
+    color: "var(--text-2)",
   },
-  radio: { accentColor: "var(--accent)", width: 18, height: 18, flex: "none" },
+  radio: { accentColor: "var(--sage)", width: 18, height: 18, flex: "none" },
   badge: {
     fontSize: 10,
-    fontWeight: 600,
+    fontWeight: 700,
     padding: "2px 7px",
-    borderRadius: "var(--radius-control)",
+    borderRadius: "var(--r-sm)",
     border: "1px solid rgba(var(--success-rgb), 0.35)",
-    color: "var(--success)",
+    color: "var(--success-deep)",
+    background: "var(--success-soft)",
     marginLeft: 4,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
   },
   badgePaid: {
     fontSize: 10,
-    fontWeight: 600,
+    fontWeight: 700,
     padding: "2px 7px",
-    borderRadius: "var(--radius-control)",
+    borderRadius: "var(--r-sm)",
     border: "1px solid rgba(var(--accent-rgb), 0.35)",
-    color: "var(--accent-text)",
+    color: "var(--sage)",
+    background: "var(--accent-soft)",
     marginLeft: 4,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
   },
   // modal
   modalBackdrop: {
     position: "fixed",
     inset: 0,
     zIndex: 100,
-    background: "rgba(0,0,0,0.72)",
-    backdropFilter: "blur(12px)",
-    WebkitBackdropFilter: "blur(12px)",
+    background: "rgba(15, 23, 42, 0.45)",
+    backdropFilter: "blur(4px)",
+    WebkitBackdropFilter: "blur(4px)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -984,65 +991,69 @@ const styles = {
     flexDirection: "column",
     padding: 0,
     overflow: "hidden",
+    border: "1px solid var(--border)",
+    borderRadius: "var(--r-md)",
+    boxShadow: "var(--shadow-lg)",
+    background: "var(--surface)",
   },
   modalHead: {
-    padding: "18px 22px 14px",
+    padding: "18px 24px 14px",
     display: "flex",
     justifyContent: "space-between",
     alignItems: "flex-start",
     gap: 12,
-    borderBottom: "1px solid var(--glass-border)",
+    borderBottom: "1px solid var(--border)",
   },
   modalTitle: { fontSize: 17, fontWeight: 800, letterSpacing: -0.3 },
-  modalSub: { fontSize: 12.5, color: "var(--muted)", marginTop: 4 },
-  modalBody: { padding: "16px 22px", overflow: "auto", flex: 1 },
+  modalSub: { fontSize: 13, color: "var(--text-3)", marginTop: 4 },
+  modalBody: { padding: "16px 24px", overflow: "auto", flex: 1 },
   modalFoot: {
-    padding: "14px 22px",
+    padding: "14px 24px",
     display: "flex",
     gap: 10,
     flexWrap: "wrap",
-    borderTop: "1px solid var(--glass-border)",
-    background: "var(--bg-input)",
+    borderTop: "1px solid var(--border)",
+    background: "var(--surface-2)",
   },
   center: {
     textAlign: "center",
     padding: "32px 12px",
-    color: "var(--muted)",
-    fontSize: 13.5,
+    color: "var(--text-3)",
+    fontSize: 14,
   },
   errorBox: {
     padding: "14px 16px",
-    borderRadius: 12,
-    background: "rgba(var(--danger-rgb),0.09)",
+    borderRadius: "var(--r-md)",
+    background: "var(--danger-soft)",
     border: "1px solid rgba(var(--danger-rgb),0.3)",
   },
   legend: {
     display: "flex",
     gap: 16,
     flexWrap: "wrap",
-    fontSize: 12.5,
-    color: "var(--muted)",
+    fontSize: 13,
+    color: "var(--text-3)",
     marginBottom: 12,
   },
   searchInput: { marginBottom: 10 },
   tableWrap: { overflowX: "auto", margin: "0 -4px" },
-  table: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
+  table: { width: "100%", borderCollapse: "collapse", fontSize: 14 },
   th: {
     textAlign: "left",
     fontWeight: 700,
     fontSize: 11,
-    color: "var(--muted)",
+    color: "var(--text-3)",
     textTransform: "uppercase",
     letterSpacing: 0.5,
     padding: "8px 10px",
-    borderBottom: "1px solid var(--glass-border)",
+    borderBottom: "1px solid var(--border)",
     position: "sticky",
     top: 0,
-    background: "var(--bg-card)",
+    background: "var(--surface)",
   },
   td: {
     padding: "10px",
-    borderBottom: "1px solid var(--border)",
+    borderBottom: "1px solid var(--border-soft)",
     verticalAlign: "middle",
   },
   zoneCell: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" },

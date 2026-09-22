@@ -3,105 +3,133 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#000000" />
-    <title>GitHub Register</title>
+    <meta name="theme-color" content="#F8FAFC" />
+    <title>iftools</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Fira+Code:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
     <style>
-      /* Tokens mirror DESIGN.md (Resend style reference): void-black canvas,
-         hairline borders for layer separation, one blue action, violet for code. */
+      /* ============================================================
+         iftools — Verdana Health Design System
+         Calm, clinical, trustworthy. Navy + sage on soft white.
+         ============================================================ */
       :root {
-        --color-void-black: #000000;
-        --color-graphite-hairline: #292d30;
-        --color-white: #ffffff;
-        --color-bone-white: #f0f0f0;
-        --color-ash-gray: #a1a4a5;
-        --color-smoke-gray: #abafb4;
-        --color-iron: #6e727a;
-        --color-charcoal: #464a4d;
-        --color-iris-violet: #9281f7;
-        --color-iris-violet-glow: #baa7ff;
-        --color-signal-blue: #3b9eff;
-        --color-sky-blue: #70b8ff;
-        --color-pulse-green: #3ad389;
-        --color-alarm-red: #ff9592;
-        --color-crimson: #ff6465;
-        --color-amber: #ffca16;
+        /* ---- Color ---- */
+        --navy: #0F172A;
+        --navy-deep: #020617;
+        --slate: #64748B;
+        --sage: #059669;
+        --sage-soft: #10B981;
+        --bg: #F8FAFC;
+        --surface: #FFFFFF;
+        --surface-2: #F1F5F9;
+        --surface-3: #E2E8F0;
+        --border: #E2E8F0;
+        --border-soft: #F1F5F9;
+        --border-strong: #CBD5E1;
+        --text: #0F172A;
+        --text-2: #475569;
+        --text-3: #64748B;
+        --text-muted: #94A3B8;
+        --success: #22C55E;
+        --success-rgb: 34, 197, 94;
+        --success-deep: #16A34A;
+        --success-soft: #DCFCE7;
+        --warning: #EAB308;
+        --warning-rgb: 234, 179, 8;
+        --warning-deep: #CA8A04;
+        --warning-soft: #FEF9C3;
+        --danger: #EF4444;
+        --danger-rgb: 239, 68, 68;
+        --danger-deep: #DC2626;
+        --danger-soft: #FEE2E2;
+        --info: #0EA5E9;
+        --info-rgb: 14, 165, 233;
+        --info-soft: #E0F2FE;
 
-        /* Surfaces */
-        --bg-primary: var(--color-void-black);
-        --bg-secondary: var(--color-void-black);
-        --bg-card: var(--color-void-black);
-        --bg-card-hover: #0e1013;
-        --bg-input: #000000;
-        --border: var(--color-graphite-hairline);
-        --border-strong: var(--color-iron);
+        /* ---- Elevation: gentle, diffused ---- */
+        --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.03);
+        --shadow: 0 2px 6px rgba(15, 23, 42, 0.05);
+        --shadow-md: 0 4px 16px rgba(15, 23, 42, 0.07);
+        --shadow-lg: 0 8px 32px rgba(15, 23, 42, 0.10);
 
-        /* Text */
-        --text-primary: var(--color-white);
-        --text-secondary: var(--color-bone-white);
-        --text-muted: var(--color-ash-gray);
-        --text-disabled: var(--color-iron);
+        /* ---- Radius ---- */
+        --r-sm: 4px;
+        --r: 8px;
+        --r-md: 12px;
+        --r-lg: 16px;
+        --r-full: 9999px;
 
-        /* One blue action, violet reserved for code identifiers */
-        --accent: var(--color-signal-blue);
-        --accent-rgb: 59, 158, 255;
-        --accent-strong: var(--color-sky-blue);
-        --accent-text: var(--color-sky-blue);
-        --accent-soft: rgba(59, 158, 255, 0.14);
-        --code-ident: var(--color-iris-violet);
+        /* ---- Spacing (8px base) ---- */
+        --sp-xs: 4px;
+        --sp-sm: 8px;
+        --sp-md: 16px;
+        --sp-lg: 24px;
+        --sp-xl: 32px;
+        --sp-2xl: 48px;
+        --sp-3xl: 64px;
 
-        /* Data / status only, never UI chrome */
-        --success: var(--color-pulse-green);
-        --success-rgb: 58, 211, 137;
-        --danger: var(--color-alarm-red);
-        --danger-rgb: 255, 149, 146;
-        --danger-strong: var(--color-crimson);
-        --warning: var(--color-amber);
-
-        /* Legacy aliases still referenced by panel inline styles */
-        --bg: var(--bg-primary);
-        --bg-raise: var(--bg-card);
-        --text: var(--text-secondary);
-        --ink: var(--text-primary);
-        --muted: var(--text-muted);
-        --ok: var(--success);
-        --ok-rgb: var(--success-rgb);
-        --glass-border: var(--border);
-        --glass: var(--bg-card);
-        --glass-strong: var(--bg-card-hover);
-        --ring: 0 0 0 3px rgba(59, 158, 255, 0.28);
-
-        /* Two-value radius scale: 6px controls, 16px cards, 24px panels */
-        --radius-control: 6px;
-        --radius-card: 16px;
-        --radius-panel: 24px;
-
-        --font-inter: 'Inter', ui-sans-serif, system-ui, -apple-system,
+        /* ---- Typography ---- */
+        --font-head: 'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system,
           BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo,
+        --font-body: 'DM Sans', ui-sans-serif, system-ui, -apple-system,
+          BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        --font-mono: 'Fira Code', ui-monospace, SFMono-Regular, Menlo,
           Monaco, Consolas, monospace;
 
-        --page-max-width: 1200px;
-        --bottom-nav-height: 60px;
+        /* Focus rings (design system: focus = 2px navy + 3px soft ring) */
+        --ring: 0 0 0 3px rgba(15, 23, 42, 0.097);
+        --ring-danger: 0 0 0 3px rgba(239, 68, 68, 0.094);
+
+        /* ---- Layout ---- */
+        --page-max-width: 1280px;
+        --bottom-nav-height: 64px;
+        --sidebar-w: 252px;
+        --sidebar-rail: 68px;
+
+        /* ---- Legacy aliases (keep panel inline styles working) ---- */
+        --bg-primary: var(--bg);
+        --bg-secondary: var(--bg);
+        --bg-card: var(--surface);
+        --bg-card-hover: var(--surface-2);
+        --bg-input: var(--surface);
+        --color-void-black: var(--navy);
+        --accent: var(--sage);
+        --accent-rgb: 5, 150, 105;
+        --accent-strong: #047857;
+        --accent-text: var(--sage);
+        --accent-soft: rgba(5, 150, 105, 0.10);
+        --code-ident: var(--info);
+        --ok: var(--success);
+        --ok-rgb: var(--success-rgb);
+        --muted: var(--text-3);
+        --text-primary: var(--text);
+        --text-secondary: var(--text-2);
+        --glass: var(--surface);
+        --glass-strong: var(--surface-2);
+        --glass-border: var(--border);
+        --radius-control: var(--r);
+        --radius-card: var(--r-lg);
+        --radius-panel: var(--r-lg);
+        --color-smoke-gray: var(--border-strong);
+        --color-alarm-red: var(--danger);
+        --color-iris-violet: var(--info);
+        --font-inter: var(--font-body);
       }
 
       * { box-sizing: border-box; margin: 0; padding: 0; }
-
       html { -webkit-text-size-adjust: 100%; }
-
       html, body, #root { height: 100%; }
 
       body {
-        background: var(--bg-primary);
-        color: var(--text-secondary);
-        font-family: var(--font-inter);
+        background: var(--bg);
+        color: var(--text-2);
+        font-family: var(--font-body);
         font-size: 16px;
-        line-height: 1.5;
+        line-height: 1.6;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
         overflow: hidden;
@@ -113,18 +141,18 @@
         html, body, #root { height: auto; min-height: 100%; }
       }
 
-      ::selection { background: rgba(59, 158, 255, 0.30); }
-
-      ::-webkit-scrollbar { width: 8px; height: 8px; }
-      ::-webkit-scrollbar-thumb { background: var(--color-graphite-hairline); border-radius: 4px; }
-      ::-webkit-scrollbar-thumb:hover { background: var(--color-iron); }
+      h1, h2, h3, h4, h5, h6 { font-family: var(--font-head); color: var(--text); }
+      ::selection { background: rgba(5, 150, 105, 0.21); }
+      ::-webkit-scrollbar { width: 10px; height: 10px; }
+      ::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 99px; border: 2px solid var(--bg); }
+      ::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
       ::-webkit-scrollbar-track { background: transparent; }
 
       code, pre, kbd, samp { font-family: var(--font-mono); }
 
       @media (prefers-reduced-motion: reduce) {
         *, *::before, *::after {
-          animation-duration: 0.01ms !important;
+          animation-duration:  0.01ms !important;
           animation-iteration-count: 1 !important;
           transition-duration: 0.01ms !important;
         }

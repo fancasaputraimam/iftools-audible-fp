@@ -10,12 +10,14 @@ import json
 import logging
 import os
 import secrets
+import re
+import shutil
 import sys
 import threading
 import time
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Deque, Dict, List, Optional
+from typing import Any, Deque, Dict, List, Optional, Tuple
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request
@@ -583,6 +585,389 @@ async def api_stop(x_access_key: Optional[str] = Header(None)) -> Dict[str, Any]
     ctrl.stop()
     _append_log("[!] stop requested from web")
     return {"ok": True, "stopped": True}
+
+
+# --------------------------------------------------------------------------- #
+# manual integration (codebuddy registration / 9router injection)
+# --------------------------------------------------------------------------- #
+
+from github_register import integrate as _integrate  # noqa: E402
+
+_integrate_stop = StopController()
+
+
+class IntegrateBody(BaseModel):
+    mode: str = Field(..., pattern="^(codebuddy|router9)$")
+    emails: List[str] = Field(default_factory=list)
+
+
+@app.get("/api/integrate/status")
+async def api_integrate_status(x_access_key: Optional[str] = Header(None)) -> Dict[str, Any]:
+    _require_auth(x_access_key)
+    return {"ok": True, **_integrate.get_state()}
+
+
+@app.get("/api/integrate/eligible")
+async def api_integrate_eligible(
+    x_access_key: Optional[str] = Header(None),
+    mode: str = Query("codebuddy", pattern="^(codebuddy|router9)$"),
+) -> Dict[str, Any]:
+    """Which accounts the given integration mode would process right now."""
+    _require_auth(x_access_key)
+    cfg = load_config(ROOT / "config.json")
+    accounts = _integrate._account_records(ROOT)
+    cb_emails = _integrate._codebuddy_emails(ROOT)
+    items = []
+    for a in accounts:
+        em = a["email"].strip().lower()
+        if mode == "codebuddy":
+            if em in cb_emails:
+                continue
+        elif mode == "router9":
+            if em not in cb_emails:
+                continue
+        items.append({"email": a["email"], "username": a["username"]})
+    router9_count = -1
+    if mode == "router9":
+        conns = _integrate._router9_emails(cfg.router9_url or "", cfg.router9_password or "")
+        router9_count = len(conns)
+        for it in items:
+            it["connected"] = it["email"].strip().lower() in conns
+    return {
+        "ok": True,
+        "mode": mode,
+        "total": len(accounts),
+        "codebuddy_count": len(cb_emails),
+        "router9_count": router9_count,
+        "items": items,
+    }
+
+
+@app.post("/api/integrate/start")
+async def api_integrate_start(
+    body: IntegrateBody, x_access_key: Optional[str] = Header(None)
+) -> Dict[str, Any]:
+    _require_auth(x_access_key)
+    if _job_state["running"]:
+        raise HTTPException(status_code=409, detail="registration job is running")
+    global _integrate_stop
+    _integrate_stop = StopController()
+    started = _integrate.start(
+        ROOT,
+        body.mode,
+        body.emails,
+        log=_append_log,
+        cancel_cb=_integrate_stop.should_stop,
+    )
+    if not started:
+        raise HTTPException(status_code=409, detail="integration already running")
+    _append_log(f"[*] integration started mode={body.mode} count={len(body.emails) or 'all'}")
+    return {"ok": True, "started": True, "mode": body.mode}
+
+
+@app.post("/api/integrate/stop")
+async def api_integrate_stop(x_access_key: Optional[str] = Header(None)) -> Dict[str, Any]:
+    _require_auth(x_access_key)
+    _integrate_stop.stop()
+    _append_log("[!] integration stop requested from web")
+    return {"ok": True, "stopped": True}
+
+
+# --------------------------------------------------------------------------- #
+# Audible FP checker (iftools)
+# --------------------------------------------------------------------------- #
+
+_AUDIBLE_STATE: Dict[str, Any] = {
+    "running": False,
+    "done": False,
+    "total": 0,
+    "hits": 0,
+    "fails": 0,
+    "results": [],
+    "error": "",
+}
+_AUDIBLE_LOCK = threading.Lock()
+_AUDIBLE_STOP = threading.Event()
+
+
+class AudibleBody(BaseModel):
+    accounts: List[str] = Field(..., min_length=1)
+    speed: str = Field("normal", pattern="^(slow|normal|fast|maximum)$")
+    proxy_file: Optional[str] = None
+    workers: Optional[int] = None
+    limit: Optional[int] = None
+
+
+def _audible_reset(total: int) -> None:
+    with _AUDIBLE_LOCK:
+        _AUDIBLE_STATE.update(
+            running=True,
+            done=False,
+            total=total,
+            hits=0,
+            fails=0,
+            results=[],
+            error="",
+        )
+        _AUDIBLE_STOP.clear()
+
+
+def _audible_add_result(email: str, password: str, status: str, note: str) -> None:
+    with _AUDIBLE_LOCK:
+        _AUDIBLE_STATE["results"].append(
+            {"email": email, "password": password, "status": status, "note": note}
+        )
+        if status == "ok":
+            _AUDIBLE_STATE["hits"] += 1
+        else:
+            _AUDIBLE_STATE["fails"] += 1
+
+
+def _run_audible(
+    accounts: List[Tuple[str, str]],
+    speed: str,
+    proxy_file: Optional[str],
+    workers: Optional[int],
+    limit: Optional[int],
+) -> None:
+    """Run the Audible FP checker in a background thread."""
+    import subprocess
+    import tempfile
+
+    tmpdir = Path(tempfile.mkdtemp(prefix="iftools_audible_"))
+    try:
+        batch_path = tmpdir / "accounts.txt"
+        with open(batch_path, "w", encoding="utf-8") as fh:
+            for em, pw in accounts:
+                fh.write(f"{em}:{pw}\n")
+        proxy_path = None
+        if proxy_file:
+            proxy_path = tmpdir / "proxies.txt"
+            # copy the CONTENT of the proxy list — writing the source path
+            # itself made every proxy line invalid, so the runner fell back
+            # to the blocked datacenter IP and every account failed.
+            src = Path(proxy_file)
+            if src.is_file():
+                with open(src, "r", encoding="utf-8", errors="replace") as fh:
+                    data = fh.read()
+                with open(proxy_path, "w", encoding="utf-8") as fh:
+                    fh.write(data)
+            else:
+                _append_log(f"[-] audible: proxy file not found: {proxy_file}")
+
+        script = Path(__file__).resolve().parent.parent / "audible_fp_runner.py"
+        cmd = [
+            sys.executable,
+            str(script),
+            "--batch",
+            str(batch_path),
+            "--speed",
+            speed,
+            "--out-dir",
+            str(tmpdir),
+        ]
+        if proxy_path:
+            cmd += ["--proxy-file", str(proxy_path)]
+        if workers:
+            cmd += ["--workers", str(workers)]
+        if limit:
+            cmd += ["--limit", str(limit)]
+
+        _append_log(f"[*] audible: starting {len(accounts)} accounts (speed={speed})")
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            cwd=str(tmpdir),
+            bufsize=1,
+        )
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            line = line.rstrip("\n")
+            if not line:
+                continue
+            _append_log(f"[audible] {line}")
+            # The runner prints each result twice: a progress line
+            # "[ 1/3] (33%) user → label" and a raw "user:pw (label)" dump at
+            # the end. Only count the progress line; the dump would double
+            # every row in /api/audible/status.
+            if not re.match(r"^\[\s*\d+/\d+\]", line):
+                parsed = None
+            else:
+                parsed = _audible_parse_line(line)
+            if parsed:
+                _audible_add_result(*parsed)
+            if _AUDIBLE_STOP.is_set():
+                proc.terminate()
+                break
+        proc.wait()
+        _append_log(f"[*] audible: process exited rc={proc.returncode}")
+    except Exception as exc:  # noqa: BLE001
+        _append_log(f"[-] audible: {exc}")
+        with _AUDIBLE_LOCK:
+            _AUDIBLE_STATE["error"] = str(exc)
+    finally:
+        # Drop the scratch dir (batch/proxies/results copies) so runs do not
+        # leak one temp directory each into /tmp forever.
+        try:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+        except Exception:
+            pass
+        # Carry over hits to the persistent results file used by the tool.
+        try:
+            src = tmpdir / "results.txt"
+            if src.exists():
+                dst = ROOT / "audible_results.txt"
+                with open(src, "r", encoding="utf-8") as fh:
+                    data = fh.read()
+                with open(dst, "a", encoding="utf-8") as fh:
+                    fh.write(data)
+        except Exception:  # noqa: BLE001
+            pass
+        with _AUDIBLE_LOCK:
+            _AUDIBLE_STATE["running"] = False
+            _AUDIBLE_STATE["done"] = True
+        _append_log("[*] audible: job finished")
+
+
+def _audible_parse_line(line: str) -> Optional[Tuple[str, str, str, str]]:
+    """Best-effort parse of one audible_fp stdout line into a result tuple.
+
+    Runner emits two shapes:
+      [  12/40] (30.0%) user@host.de → OTP_SMS:xxx-xxx-xx51
+      user@host.de:password (fail:no_otp)
+    """
+    m = re.match(
+        r"^(?:\[\s*\d+/\d+\]\s*\([^)]*\)\s*)?([^\s:]+):(\S+)\s*\((.+)\)\s*$",
+        line,
+    )
+    if not m:
+        m2 = re.match(
+            r"^(?:\[\s*(\d+)/(\d+)\]\s*\([^)]*\)\s*)([^\s→:]+)\s*→\s*(.+)$",
+            line,
+        )
+        if not m2:
+            return None
+        email, note = m2.group(3).strip(), m2.group(4).strip()
+        password = ""
+    else:
+        email, password, note = m.group(1).strip(), m.group(2), m.group(3).strip()
+    note_l = note.lower()
+    if "fail" in note_l or "bad" in note_l or "error" in note_l:
+        status = "fail"
+    elif "otp" in note_l or "hit" in note_l or note_l.startswith("ok"):
+        status = "ok"
+    else:
+        status = "check"
+    return email, password, status, note
+
+
+@app.post("/api/audible/start")
+async def api_audible_start(
+    body: AudibleBody, x_access_key: Optional[str] = Header(None)
+) -> Dict[str, Any]:
+    _require_auth(x_access_key)
+    with _AUDIBLE_LOCK:
+        if _AUDIBLE_STATE["running"]:
+            raise HTTPException(status_code=409, detail="audible job already running")
+    accounts: List[Tuple[str, str]] = []
+    for line in body.accounts:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split(":", 1)
+        if len(parts) != 2:
+            continue
+        accounts.append((parts[0].strip(), parts[1].strip()))
+    if not accounts:
+        raise HTTPException(status_code=400, detail="no valid email:password lines")
+    if body.limit:
+        accounts = accounts[: body.limit]
+    _audible_reset(len(accounts))
+    threading.Thread(
+        target=_run_audible,
+        args=(accounts, body.speed, body.proxy_file, body.workers, body.limit),
+        daemon=True,
+    ).start()
+    return {"ok": True, "started": True, "total": len(accounts)}
+
+
+@app.post("/api/audible/stop")
+async def api_audible_stop(x_access_key: Optional[str] = Header(None)) -> Dict[str, Any]:
+    _require_auth(x_access_key)
+    _AUDIBLE_STOP.set()
+    _append_log("[!] audible stop requested from web")
+    return {"ok": True, "stopped": True}
+
+
+@app.get("/api/audible/status")
+async def api_audible_status(x_access_key: Optional[str] = Header(None)) -> Dict[str, Any]:
+    _require_auth(x_access_key)
+    with _AUDIBLE_LOCK:
+        return {"ok": True, **_AUDIBLE_STATE}
+
+
+@app.get("/api/audible/results")
+async def api_audible_results(
+    x_access_key: Optional[str] = Header(None),
+    kind: str = Query("all", pattern="^(all|hits)$"),
+) -> Response:
+    _require_auth(x_access_key)
+    src = ROOT / "audible_results.txt"
+    if not src.exists():
+        return Response(content="", media_type="text/plain")
+    lines = src.read_text(encoding="utf-8").splitlines()
+    if kind == "hits":
+        lines = [ln for ln in lines if "(fail:" not in ln and "(fail " not in ln]
+        return Response(content="\n".join(lines), media_type="text/plain")
+    # The file is appended on every run, so the same account can appear many
+    # times with different labels. Show only the LATEST line per email.
+    latest: dict[str, str] = {}
+    for ln in lines:
+        ln = ln.strip()
+        if not ln:
+            continue
+        em = ln.split(":", 1)[0]
+        latest[em] = ln
+    return Response(content="\n".join(latest.values()), media_type="text/plain")
+
+
+@app.get("/api/audible/accounts")
+async def api_audible_accounts(
+    x_access_key: Optional[str] = Header(None),
+) -> Dict[str, Any]:
+    """Audible accounts parsed from results.txt as rows for the accounts list."""
+    _require_auth(x_access_key)
+    src = ROOT / "audible_results.txt"
+    rows: List[Dict[str, Any]] = []
+    if src.exists():
+        for ln in src.read_text(encoding="utf-8").splitlines():
+            ln = ln.strip()
+            if not ln or ln.startswith("#"):
+                continue
+            m = re.match(r"^([^:]+):(\S*)\s*\((.*)\)\s*$", ln)
+            if not m:
+                continue
+            email, pw, note = m.group(1).strip(), m.group(2), m.group(3).strip()
+            note_l = note.lower()
+            status = (
+                "fail"
+                if ("fail" in note_l or "bad" in note_l)
+                else "ok"
+                if ("otp" in note_l or "hit" in note_l)
+                else "check"
+            )
+            rows.append(
+                {
+                    "email": email,
+                    "password": pw,
+                    "status": status,
+                    "note": note,
+                    "source": "audible",
+                }
+            )
+    return {"ok": True, "total": len(rows), "items": rows}
 
 
 @app.get("/api/logs")
