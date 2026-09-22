@@ -8,15 +8,19 @@ import {
   FileText,
   Gauge,
   ListChecks,
+  ListEnd,
   Pause,
   Play,
+  Radio,
+  ScrollText,
   Square,
   Target,
+  Trash2,
   Upload,
   XCircle,
   FolderOpen,
 } from 'lucide-react'
-import { api } from '../api.js'
+import { api, subscribeLogs } from '../api.js'
 import { Badge, Button, Card, Dialog, Input, Spinner } from './ui.jsx'
 
 /* ---------------------------------------------------------------
@@ -84,6 +88,55 @@ export default function AudiblePanel() {
   const pollRef = useRef(null)
   const toastTimer = useRef(null)
   const tickTimer = useRef(null)
+
+  // --- streaming log (SSE /api/logs) ---
+  const [logLines, setLogLines] = useState([])
+  const [logLive, setLogLive] = useState(false)
+  const [logFollow, setLogFollow] = useState(true)
+  const logBoxRef = useRef(null)
+  const logUnsubRef = useRef(() => {})
+
+  useEffect(() => {
+    let closed = false
+    api
+      .get('/api/logs/snapshot?limit=500')
+      .then((data) => {
+        if (closed) return
+        setLogLines(data.lines || [])
+        setLogLive(true)
+        subscribeLogs(data.seq || 0, (line) => {
+          if (closed) return
+          setLogLines((prev) => [...prev.slice(-1499), line])
+        })
+          .then((unsub) => {
+            if (!closed) logUnsubRef.current = unsub
+          })
+          .catch(() => {})
+      })
+      .catch(() => {})
+    return () => {
+      closed = true
+      logUnsubRef.current()
+      setLogLive(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    const el = logBoxRef.current
+    if (!logFollow || !el) return
+    // Keep the newest event visible while the stream is active.
+    el.scrollTop = el.scrollHeight
+  }, [logLines, logFollow])
+
+  function logTone(line) {
+    return line.includes('[+]')
+      ? 'success'
+      : line.includes('[-]') || line.includes('[!]')
+        ? 'danger'
+        : line.includes('[*]')
+          ? 'accent'
+          : ''
+  }
 
   function showToast(msg) {
     setToast(msg)
@@ -520,6 +573,46 @@ export default function AudiblePanel() {
           </div>
         </Card>
       )}
+
+      <Card className="log-layout" style={{ maxWidth: '100%' }}>
+        <div className="log-toolbar">
+          <div className="log-toolbar-group">
+            <Badge tone={logLive ? 'success' : 'muted'}>
+              <Radio size={12} />
+              {logLive ? 'Streaming' : 'Connecting'}
+            </Badge>
+            <span>{logLines.length} lines</span>
+          </div>
+          <div className="log-toolbar-group">
+            <label className="log-follow">
+              <input
+                type="checkbox"
+                checked={logFollow}
+                onChange={(e) => setLogFollow(e.target.checked)}
+              />
+              Auto-scroll
+            </label>
+            <Button size="sm" onClick={() => setLogLines([])}>
+              <Trash2 size={14} /> Clear
+            </Button>
+          </div>
+        </div>
+        <div className="log-terminal" ref={logBoxRef}>
+          {logLines.length === 0 ? (
+            <div className="ui-empty-state">
+              <ScrollText size={26} />
+              <strong>No logs yet</strong>
+              <p>Start a run and every checker step streams here in real time.</p>
+            </div>
+          ) : (
+            logLines.map((line, index) => (
+              <div key={index} className={`log-line ${logTone(line)}`}>
+                {line}
+              </div>
+            ))
+          )}
+        </div>
+      </Card>
 
       <Dialog
         open={stopOpen}

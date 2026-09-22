@@ -30,9 +30,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Wajib sukses: unduh browser Camoufox sekali saat build (bukan tiap start).
 RUN python -m camoufox fetch
 
-COPY github_register/ ./github_register/
+COPY audible_fp_runner.py ./audible_fp_runner.py
 COPY web/ ./web/
-COPY main.py proxy_rotator.py config.example.json ./
 
 COPY --from=frontend /build/dist ./frontend/dist
 
@@ -40,5 +39,4 @@ EXPOSE 8093
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=20s \
     CMD curl -fsS http://127.0.0.1:8093/health || exit 1
 
-# config.json is mounted from the host (see compose); fall back to the example if forgotten.
-CMD ["sh", "-c", "test -f config.json || cp config.example.json config.json; exec python -m web.server"]
+CMD ["python", "-m", "web.server"]
