@@ -233,6 +233,7 @@ _AUDIBLE_STATE: Dict[str, Any] = {
     "total": 0,
     "hits": 0,
     "fails": 0,
+    "checks": 0,
     "results": [],
     "error": "",
     "started_at": None,
@@ -258,6 +259,7 @@ def _audible_reset(total: int) -> None:
             total=total,
             hits=0,
             fails=0,
+            checks=0,
             results=[],
             error="",
             started_at=time.time(),
@@ -268,13 +270,29 @@ def _audible_reset(total: int) -> None:
 
 def _audible_add_result(email: str, password: str, status: str, note: str) -> None:
     with _AUDIBLE_LOCK:
-        _AUDIBLE_STATE["results"].append(
-            {"email": email, "password": password, "status": status, "note": note}
+        # Dedup: keep latest entry per email, undo old counter first.
+        existing_idx = next(
+            (i for i, r in enumerate(_AUDIBLE_STATE["results"]) if r["email"] == email),
+            None,
         )
+        entry = {"email": email, "password": password, "status": status, "note": note}
+        if existing_idx is not None:
+            old = _AUDIBLE_STATE["results"][existing_idx]
+            if old["status"] == "ok":
+                _AUDIBLE_STATE["hits"] = max(0, _AUDIBLE_STATE["hits"] - 1)
+            elif old["status"] == "fail":
+                _AUDIBLE_STATE["fails"] = max(0, _AUDIBLE_STATE["fails"] - 1)
+            else:
+                _AUDIBLE_STATE["checks"] = max(0, _AUDIBLE_STATE["checks"] - 1)
+            _AUDIBLE_STATE["results"][existing_idx] = entry
+        else:
+            _AUDIBLE_STATE["results"].append(entry)
         if status == "ok":
             _AUDIBLE_STATE["hits"] += 1
-        else:
+        elif status == "fail":
             _AUDIBLE_STATE["fails"] += 1
+        else:
+            _AUDIBLE_STATE["checks"] += 1
 
 
 def _run_audible(
