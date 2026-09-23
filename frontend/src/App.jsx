@@ -3,6 +3,7 @@ import {
   AudioLines,
   LayoutGrid,
   LogOut,
+  Mail,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
@@ -12,6 +13,7 @@ import {
 } from "lucide-react";
 import { api, getToken, setToken } from "./api.js";
 import AudiblePanel from "./components/AudiblePanel.jsx";
+import OutlookPanel from "./components/OutlookPanel.jsx";
 import LogViewer from "./components/LogViewer.jsx";
 import {
   Badge,
@@ -28,7 +30,8 @@ import {
 
 const NAV = [
   { id: "checker", label: "Audible FP", sub: "Forgot-password checker", icon: AudioLines },
-  { id: "logs", label: "Live Logs", sub: "Streaming job output", icon: ScrollText },
+  { id: "outlook", label: "Outlook",    sub: "OAuth2 bruter + inboxer", icon: Mail },
+  { id: "logs",    label: "Live Logs",  sub: "Streaming job output",    icon: ScrollText },
 ];
 
 export default function App() {
@@ -140,6 +143,7 @@ export default function App() {
 
   const ActivePanel = {
     checker: AudiblePanel,
+    outlook: OutlookPanel,
     logs: LogViewer,
   }[tab];
 
