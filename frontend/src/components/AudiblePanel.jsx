@@ -150,6 +150,7 @@ export default function AudiblePanel() {
   const [now, setNow] = useState(Date.now())
   const [filter, setFilter] = useState('all')
   const [sortDesc, setSortDesc] = useState(true)
+  const [configOpen, setConfigOpen] = useState(false)
   const pollRef = useRef(null)
   const toastTimer = useRef(null)
   const tickTimer = useRef(null)
@@ -422,7 +423,19 @@ export default function AudiblePanel() {
 
       {/* Controls */}
       <Card style={{ padding: 0, overflow: 'hidden' }}>
-        <div className="ui-card-strip"><ListChecks size={15} /><strong>Configure Run</strong></div>
+        <button
+          type="button"
+          className="ui-card-strip config-toggle"
+          onClick={() => setConfigOpen((v) => !v)}
+          aria-expanded={configOpen}
+        >
+          <ListChecks size={15} />
+          <strong>Configure Run</strong>
+          <span className="config-toggle-chevron">
+            {configOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+          </span>
+        </button>
+        {configOpen && (
         <div className="run-steps">
 
           <div className="run-step">
@@ -538,6 +551,7 @@ export default function AudiblePanel() {
             </div>
           </div>
         </div>
+        )}
       </Card>
 
       {/* Results table */}

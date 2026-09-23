@@ -1606,6 +1606,30 @@
   .run-file-btn { max-width: 100%; }
 }
 
+/* Configure Run — collapsible strip */
+.config-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  padding: 10px var(--sp-lg);
+  background: var(--navy);
+  color: #fff;
+  font-family: var(--font-head);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  border: none;
+  border-radius: var(--r) var(--r) 0 0;
+  cursor: pointer;
+  text-align: left;
+  transition: background 120ms ease-out;
+}
+.config-toggle:hover { background: #020617; }
+.config-toggle:focus-visible { outline: none; box-shadow: var(--ring); }
+.config-toggle-chevron { margin-left: auto; display: flex; align-items: center; opacity: 0.8; }
+
 /* ============================================================
    Results table header — filter tabs + sort toggle
    ============================================================ */
