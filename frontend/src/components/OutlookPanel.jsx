@@ -91,6 +91,8 @@ export default function OutlookPanel() {
   const [mode, setMode]           = useState('bruter')
   const [keyword, setKeyword]     = useState('')
   const [sender, setSender]       = useState('')
+  const [dateFrom, setDateFrom]   = useState('')
+  const [dateTo, setDateTo]       = useState('')
   const [workers, setWorkers]     = useState('')
   const [running, setRunning]     = useState(false)
   const [status, setStatus]       = useState(null)
@@ -157,8 +159,9 @@ export default function OutlookPanel() {
 
   async function startJob() {
     if (busy) return
-    if (mode === 'inboxer' && !keyword.trim() && !sender.trim()) {
-      showToast('Enter a keyword or sender for Inboxer mode')
+    if (mode === 'inboxer' && !keyword.trim() && !sender.trim()
+        && !dateFrom.trim() && !dateTo.trim()) {
+      showToast('Enter a keyword, sender, or date range for Inboxer mode')
       return
     }
     const list = accounts.split('\n').map((l) => l.trim())
@@ -171,6 +174,8 @@ export default function OutlookPanel() {
         mode,
         keyword: mode === 'inboxer' ? keyword.trim() : undefined,
         sender: mode === 'inboxer' ? sender.trim() : undefined,
+        date_from: mode === 'inboxer' ? dateFrom.trim() : undefined,
+        date_to: mode === 'inboxer' ? dateTo.trim() : undefined,
         proxy_file: proxyFile || undefined,
         workers: workers ? Number(workers) : undefined,
       })
@@ -448,6 +453,52 @@ export default function OutlookPanel() {
                       />
                       <div className="run-field-hint">
                         Searches <code>from:</code> filter — comma-separated for multiple senders
+                      </div>
+                    </div>
+                  )}
+
+                  {mode === 'inboxer' && (
+                    <div className="run-field-group">
+                      <label className="run-field-label">
+                        Date range <span style={{ fontSize: 10, color: 'var(--text-3)' }}>optional</span>
+                      </label>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <Input
+                          type="date"
+                          aria-label="Date from"
+                          value={dateFrom}
+                          onChange={(e) => setDateFrom(e.target.value)}
+                          autoComplete="off"
+                          name="ol-datefrom-x"
+                          data-lpignore="true"
+                          style={{ flex: '1 1 130px' }}
+                        />
+                        <span style={{ color: 'var(--text-3)', fontSize: 12 }}>to</span>
+                        <Input
+                          type="date"
+                          aria-label="Date to"
+                          value={dateTo}
+                          onChange={(e) => setDateTo(e.target.value)}
+                          autoComplete="off"
+                          name="ol-dateto-x"
+                          data-lpignore="true"
+                          style={{ flex: '1 1 130px' }}
+                        />
+                        {(dateFrom || dateTo) && (
+                          <button
+                            type="button"
+                            className="copy-btn"
+                            onClick={() => { setDateFrom(''); setDateTo('') }}
+                            title="Clear dates"
+                            aria-label="Clear dates"
+                            style={{ flex: '0 0 auto' }}
+                          >
+                            <XCircle size={13} />
+                          </button>
+                        )}
+                      </div>
+                      <div className="run-field-hint">
+                        Filter by <code>received:</code> date — e.g. 01.09.2026 to 23.09.2026
                       </div>
                     </div>
                   )}

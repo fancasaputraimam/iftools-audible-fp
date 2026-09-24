@@ -140,6 +140,12 @@
   outline: none;
 }
 .ui-input:disabled { border-color: var(--border); background: var(--surface-2); }
+.ui-input[type="date"] {
+  padding: 0 12px;
+  min-height: 38px;
+  font-size: 13px;
+  color-scheme: dark;
+}
 .ui-input[aria-invalid="true"] {
   border-width: 2px;
   border-color: var(--danger);
