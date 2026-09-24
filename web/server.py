@@ -337,8 +337,12 @@ def _run_audible(
                 _append_log(f"[*] audible: proxy list written from content ({n} lines)")
 
         script = Path(__file__).resolve().parent.parent / "audible_fp_runner.py"
+        # The checker needs its own venv (playwright + deps live there, not in
+        # whatever interpreter is running this web service).
+        project_venv = Path(__file__).resolve().parent.parent / ".venv" / "bin" / "python"
+        runner_python = str(project_venv) if project_venv.is_file() else sys.executable
         cmd = [
-            sys.executable,
+            runner_python,
             str(script),
             "--batch",
             str(batch_path),
