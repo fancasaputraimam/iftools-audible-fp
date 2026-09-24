@@ -450,6 +450,47 @@ def _audible_parse_line(line: str) -> Optional[Tuple[str, str, str, str]]:
     return email, password, status, note
 
 
+def _restore_audible_results() -> None:
+    """Rebuild the in-memory result list from the persisted results file.
+
+    The web service keeps results in memory only, so a restart would wipe the
+    table and disable Download even though the file still holds everything.
+    """
+    if not RESULTS_FILE.exists():
+        return
+    seen: set = set()
+    hits = fails = checks = 0
+    for ln in RESULTS_FILE.read_text(encoding="utf-8").splitlines():
+        ln = ln.strip()
+        if not ln:
+            continue
+        parsed = _audible_parse_line(ln)
+        if not parsed:
+            continue
+        email, password, status, note = parsed
+        if email in seen:
+            continue  # keep the FIRST occurrence (matches live-run ordering)
+        seen.add(email)
+        _AUDIBLE_STATE["results"].append(
+            {"email": email, "password": password, "status": status, "note": note}
+        )
+        if status == "ok":
+            hits += 1
+        elif status == "fail":
+            fails += 1
+        else:
+            checks += 1
+    _AUDIBLE_STATE["hits"] = hits
+    _AUDIBLE_STATE["fails"] = fails
+    _AUDIBLE_STATE["checks"] = checks
+    _AUDIBLE_STATE["total"] = len(seen)
+    _AUDIBLE_STATE["done"] = True
+    _AUDIBLE_STATE["finished_at"] = RESULTS_FILE.stat().st_mtime
+
+
+_restore_audible_results()
+
+
 @app.post("/api/audible/start")
 async def api_audible_start(
     body: AudibleBody, x_access_key: Optional[str] = Header(None)
@@ -495,28 +536,65 @@ async def api_audible_status(x_access_key: Optional[str] = Header(None)) -> Dict
         return {"ok": True, **_AUDIBLE_STATE}
 
 
+def _note_of(line: str) -> str:
+    """Extract the "(...)" detail from a results line, '' if absent."""
+    m = re.search(r"\(([^()]*)\)\s*$", line)
+    return m.group(1).strip() if m else ""
+
+
+def _audible_classify(note: str) -> str:
+    """Map a result note to a download bucket. Mirrors _audible_parse_line."""
+    n = (note or "").strip().lower()
+    if "fail" in n or "bad" in n or "error" in n:
+        return "fail"
+    if (n.startswith("otp_sms") or n.startswith("otp_wa") or n.startswith("otp_email")
+            or n.startswith("otp") or "hit" in n or n.startswith("ok")):
+        return "otp"
+    if n.startswith("v2l"):
+        return "v2l"
+    if n.startswith("dcq") or n.startswith("cc:") or n.startswith("push_notif"):
+        return "dcq"
+    return "check"
+
+
 @app.get("/api/audible/results")
 async def api_audible_results(
     x_access_key: Optional[str] = Header(None),
-    kind: str = Query("all", pattern="^(all|hits)$"),
+    kind: str = Query("all", pattern="^(all|hits|otp|v2l|dcq|check|fail)(,(all|hits|otp|v2l|dcq|check|fail))*$"),
+    meta: str = Query("0", pattern="^(0|1)$"),
 ) -> Response:
     _require_auth(x_access_key)
     if not RESULTS_FILE.exists():
         return Response(content="", media_type="text/plain")
-    lines = RESULTS_FILE.read_text(encoding="utf-8").splitlines()
-    if kind == "hits":
-        lines = [ln for ln in lines if "(fail:" not in ln and "(fail " not in ln]
-        return Response(content="\n".join(lines), media_type="text/plain")
+    keep_detail = meta == "1"
     # The file is appended on every run, so the same account can appear many
-    # times with different labels. Show only the LATEST line per email.
+    # times with different labels. Keep only the LATEST line per email.
     latest: dict[str, str] = {}
-    for ln in lines:
+    for ln in RESULTS_FILE.read_text(encoding="utf-8").splitlines():
         ln = ln.strip()
         if not ln:
             continue
-        em = ln.split(":", 1)[0]
-        latest[em] = ln
-    return Response(content="\n".join(latest.values()), media_type="text/plain")
+        latest[ln.split(":", 1)[0]] = ln
+
+    def emit(line: str) -> str:
+        if keep_detail:
+            return line
+        # credentials-only: drop the trailing " (label)" detail
+        m = re.match(r"^([^:]+:\S+?)(?:\s+\([^)]*\))?\s*$", line)
+        return m.group(1) if m else line
+
+    kinds = [k for k in (kind or "").split(",") if k]
+    buckets = set(kinds) if kinds and kinds != ["all"] else None
+
+    def wanted(line: str) -> bool:
+        if buckets is None or "all" in buckets:
+            return True
+        if "hits" in buckets:
+            return _audible_classify(_note_of(line)) != "fail"
+        return _audible_classify(_note_of(line)) in buckets
+
+    out = [emit(v) for v in latest.values() if wanted(v)]
+    return Response(content="\n".join(out), media_type="text/plain")
 
 
 @app.get("/api/audible/accounts")
@@ -734,8 +812,73 @@ def _outlook_add_result(email: str, password: str, status: str,
             _OUTLOOK_STATE["hits"] += 1
         else:
             _OUTLOOK_STATE["bad"] += 1
+            try:
+                bad_path = _OUTLOOK_RESULTS_FILE.parent / "outlook_bad.txt"
+                with open(bad_path, "a", encoding="utf-8") as fh:
+                    fh.write(f"{email}:{password} | Status: bad\n")
+            except OSError:
+                pass
         if found > 0:
             _OUTLOOK_STATE["found"] += 1
+
+
+def _restore_outlook_results() -> None:
+    """Rebuild outlook state from the persisted files after a restart."""
+    if not _OUTLOOK_RESULTS_FILE.exists():
+        return
+    seen: set = set()
+    hits = bad = found = 0
+    inbox_path = _OUTLOOK_RESULTS_FILE.parent / "outlook_inbox.txt"
+    inbox_lines: Dict[str, str] = {}
+    if inbox_path.exists():
+        for ln in inbox_path.read_text(encoding="utf-8").splitlines():
+            ln = ln.strip()
+            if not ln:
+                continue
+            m = re.match(r"^([^:]+):(\S*)\s*\|\s*Name:\s*([^|]*?)\s*\|\s*Country:\s*([^|]*?)\s*(?:\|\s*Found:\s*(\d+))?\s*$", ln)
+            if not m:
+                continue
+            em, pw = m.group(1).strip(), m.group(2)
+            inbox_lines[em] = ln
+            if em in seen:
+                continue
+            seen.add(em)
+            _OUTLOOK_STATE["results"].append({
+                "email": em, "password": pw, "status": "hit",
+                "name": m.group(3).strip(), "country": m.group(4).strip(),
+                "found": int(m.group(5) or 0),
+            })
+            hits += 1
+            if int(m.group(5) or 0) > 0:
+                found += 1
+    for ln in _OUTLOOK_RESULTS_FILE.read_text(encoding="utf-8").splitlines():
+        ln = ln.strip()
+        if not ln:
+            continue
+        m = re.match(r"^([^:]+):(\S*)\s*\|\s*Name:\s*([^|]*?)\s*\|\s*Country:\s*([^|]*?)\s*$", ln)
+        if not m:
+            continue
+        em, pw = m.group(1).strip(), m.group(2)
+        if em in seen:
+            continue
+        seen.add(em)
+        inbox_line = inbox_lines.get(em, "")
+        fm = re.search(r"Found:\s*(\d+)", inbox_line)
+        _OUTLOOK_STATE["results"].append({
+            "email": em, "password": pw, "status": "hit",
+            "name": m.group(3).strip(), "country": m.group(4).strip(),
+            "found": int(fm.group(1)) if fm else 0,
+        })
+        hits += 1
+    _OUTLOOK_STATE["hits"] = hits
+    _OUTLOOK_STATE["bad"] = bad
+    _OUTLOOK_STATE["found"] = found
+    _OUTLOOK_STATE["total"] = len(seen)
+    _OUTLOOK_STATE["done"] = True
+    _OUTLOOK_STATE["finished_at"] = _OUTLOOK_RESULTS_FILE.stat().st_mtime
+
+
+_restore_outlook_results()
 
 
 def _msft_login_page(session, email: str) -> Optional[Dict[str, str]]:
@@ -1199,20 +1342,57 @@ async def api_outlook_status(x_access_key: Optional[str] = Header(None)) -> Dict
 @app.get("/api/outlook/results")
 async def api_outlook_results(
     x_access_key: Optional[str] = Header(None),
-    kind: str = Query("all", pattern="^(all|hits|inbox)$"),
+    kind: str = Query("all", pattern="^(all|hits|inbox|bad)(,(all|hits|inbox|bad))*$"),
+    meta: str = Query("0", pattern="^(0|1)$"),
 ) -> Response:
     _require_auth(x_access_key)
-    if kind == "inbox":
-        p = _OUTLOOK_RESULTS_FILE.parent / "outlook_inbox.txt"
-    else:
-        p = _OUTLOOK_RESULTS_FILE
-    if not p.exists():
-        return Response(content="", media_type="text/plain")
-    text = p.read_text(encoding="utf-8")
-    if kind == "hits":
-        lines = [ln for ln in text.splitlines() if ln.strip()]
-        text = "\n".join(lines)
-    return Response(content=text, media_type="text/plain")
+    keep_detail = meta == "1"
+
+    def creds_only(line: str) -> str:
+        if keep_detail:
+            return line
+        return line.split(" | ")[0].strip()
+
+    kinds = [k for k in (kind or "").split(",") if k]
+    want_all = (not kinds) or ("all" in kinds)
+
+    # Latest line per email across the persisted files (they are append-only).
+    hits: dict[str, str] = {}
+    inbox: dict[str, str] = {}
+    bad: dict[str, str] = {}
+
+    if _OUTLOOK_RESULTS_FILE.exists():
+        for ln in _OUTLOOK_RESULTS_FILE.read_text(encoding="utf-8").splitlines():
+            ln = ln.strip()
+            if not ln:
+                continue
+            hits[ln.split(":", 1)[0]] = ln
+
+    inbox_path = _OUTLOOK_RESULTS_FILE.parent / "outlook_inbox.txt"
+    if inbox_path.exists():
+        for ln in inbox_path.read_text(encoding="utf-8").splitlines():
+            ln = ln.strip()
+            if not ln:
+                continue
+            inbox[ln.split(":", 1)[0]] = ln
+
+    bad_path = _OUTLOOK_RESULTS_FILE.parent / "outlook_bad.txt"
+    if (want_all or "bad" in kinds) and bad_path.exists():
+        for ln in bad_path.read_text(encoding="utf-8").splitlines():
+            ln = ln.strip()
+            if not ln:
+                continue
+            bad[ln.split(":", 1)[0]] = ln
+
+    def want(key: str) -> bool:
+        return want_all or key in kinds
+
+    merged: dict[str, str] = {}
+    if want("bad"):   merged.update(bad)
+    if want("hits"):  merged.update({**hits, **inbox})
+    if want("inbox"): merged.update(inbox)
+    return Response(content="\n".join(creds_only(v) for v in merged.values()),
+                    media_type="text/plain")
 
 
 # --------------------------------------------------------------------------- #

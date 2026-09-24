@@ -27,6 +27,7 @@ import {
 } from 'lucide-react'
 import { api, subscribeLogs } from '../api.js'
 import { Badge, Button, Card, Dialog, Input, Spinner } from './ui.jsx'
+import DownloadModal from './DownloadModal.jsx'
 
 const SPEEDS = [
   { id: 'slow', label: 'Slow' },
@@ -147,6 +148,7 @@ export default function AudiblePanel() {
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState('')
   const [stopOpen, setStopOpen] = useState(false)
+  const [dlOpen, setDlOpen] = useState(false)
   const [now, setNow] = useState(Date.now())
   const [filter, setFilter] = useState('all')
   const [sortDesc, setSortDesc] = useState(true)
@@ -311,6 +313,8 @@ export default function AudiblePanel() {
     const n = r.note?.toLowerCase() || ''
     return (n.startsWith('otp_sms') || n.startsWith('otp_email')) && r.status === 'ok'
   }).length
+  const waCount = results.filter((r) => r.note?.toLowerCase().startsWith('otp_wa')).length
+  const captchaCount = results.filter((r) => r.note?.toLowerCase().startsWith('captcha')).length
 
   const elapsedSec = (() => {
     if (!status?.started_at) return 0
@@ -539,13 +543,9 @@ export default function AudiblePanel() {
                     {busy ? <Spinner /> : <Play size={16} />} Start checker
                   </Button>
                 )}
-                <Button className="status-action-nav" onClick={() => download('hits')}
-                  disabled={!hitCount} title="Download hits only">
-                  <Download size={15} /> Hits ({hitCount})
-                </Button>
-                <Button className="status-action-nav" onClick={() => download('all')}
-                  disabled={!total} title="Download all results">
-                  <FileText size={15} /> All ({total})
+                <Button className="status-action-nav" onClick={() => setDlOpen(true)}
+                  disabled={!total} title="Download results">
+                  <Download size={15} /> Download
                 </Button>
               </div>
             </div>
@@ -683,6 +683,25 @@ export default function AudiblePanel() {
           <Button variant="destructive" onClick={stopJob}><XCircle size={15} /> Stop</Button></>}>
         The current account finishes, then the job stops. Results so far are kept.
       </Dialog>
+
+      <DownloadModal
+        open={dlOpen}
+        onClose={() => setDlOpen(false)}
+        prefix="audible"
+        showToast={showToast}
+        options={[
+          { id: 'hits', label: 'All hits', hint: 'Every non-failed account', count: hitCount, kind: 'hits', tone: 'success' },
+          { id: 'otp', label: 'OTP hits', hint: 'OTP retrieved — SMS / WhatsApp / email', count: otpCount + waCount, kind: 'otp', tone: 'success' },
+          { id: 'v2l', label: 'v2l', hint: 'Valid login, not an Amazon account', count: v2lCount, kind: 'v2l', tone: 'info' },
+          { id: 'dcq', label: 'DCQ / Push', hint: 'Needs device or card verification', count: dcqCount, kind: 'dcq', tone: 'warning' },
+          { id: 'check', label: 'Check', hint: 'Inconclusive — needs a manual look', count: checkCount, kind: 'check', tone: 'warning' },
+          { id: 'fail', label: 'Failed', hint: 'Wrong password, no OTP, not Amazon…', count: failCount, kind: 'fail', tone: 'danger' },
+        ]}
+        cols={[
+          { id: 'all', label: 'Everything', hint: 'All buckets combined', kinds: ['all'] },
+          { id: 'usable', label: 'All usable', hint: 'OTP + v2l + DCQ', kinds: ['otp', 'v2l', 'dcq'] },
+        ]}
+      />
 
       {toast && (
         <div className="toast" style={{ padding: '12px 26px', fontSize: 14 }} role="status" aria-live="polite">

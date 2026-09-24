@@ -27,6 +27,7 @@ import {
 } from 'lucide-react'
 import { api } from '../api.js'
 import { Badge, Button, Card, Input, Spinner } from './ui.jsx'
+import DownloadModal from './DownloadModal.jsx'
 
 const FILTERS = [
   { id: 'all',  label: 'All'  },
@@ -100,6 +101,7 @@ export default function OutlookPanel() {
   const [busy, setBusy]           = useState(false)
   const [toast, setToast]         = useState('')
   const [stopOpen, setStopOpen]   = useState(false)
+  const [dlOpen, setDlOpen]       = useState(false)
   const [filter, setFilter]       = useState('all')
   const [sortDesc, setSortDesc]   = useState(true)
   const [configOpen, setConfigOpen] = useState(false)
@@ -547,19 +549,9 @@ export default function OutlookPanel() {
                       {busy ? <Spinner /> : <Play size={16} />} Start checker
                     </Button>
                   )}
-                  <Button className="status-action-nav" onClick={() => download('hits')}
-                    disabled={!hits} title="Download valid accounts">
-                    <Download size={15} /> Hits ({hits})
-                  </Button>
-                  {mode === 'inboxer' && (
-                    <Button className="status-action-nav" onClick={() => download('inbox')}
-                      disabled={!found} title="Download inbox matches only">
-                      <Inbox size={15} /> Inbox ({found})
-                    </Button>
-                  )}
-                  <Button className="status-action-nav" onClick={() => download('all')}
-                    disabled={!total} title="Download all results">
-                    <FileText size={15} /> All ({total})
+                  <Button className="status-action-nav" onClick={() => setDlOpen(true)}
+                    disabled={!total} title="Download results">
+                    <Download size={15} /> Download
                   </Button>
                 </div>
               </div>
@@ -698,6 +690,26 @@ export default function OutlookPanel() {
           </div>
         </div>
       )}
+
+      <DownloadModal
+        open={dlOpen}
+        onClose={() => setDlOpen(false)}
+        prefix="outlook"
+        showToast={showToast}
+        options={[
+          { id: 'hits', label: 'Valid accounts', hint: 'Login worked — credentials confirmed', count: hits, kind: 'hits', tone: 'success' },
+          ...(mode === 'inboxer' ? [
+            { id: 'inbox', label: 'Inbox matches', hint: 'Valid + keyword/sender/date matched', count: found, kind: 'inbox', tone: 'info' },
+          ] : []),
+          { id: 'bad', label: 'Bad accounts', hint: 'Wrong password / locked / 2FA', count: bad, kind: 'bad', tone: 'danger' },
+        ]}
+        cols={[
+          { id: 'all', label: 'Everything', hint: 'Valid + inbox + bad', kinds: ['all'] },
+          ...(mode === 'inboxer' ? [
+            { id: 'usable', label: 'All usable', hint: 'Valid + inbox matches', kinds: ['hits', 'inbox'] },
+          ] : []),
+        ]}
+      />
 
       {toast && (
         <div className="toast" style={{ padding: '12px 26px', fontSize: 14 }}
