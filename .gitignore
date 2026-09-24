@@ -72,3 +72,6 @@ proxy_pool_debug*.json
 .codegraph/
 proxies_live.txt*
 proxies*.txt
+# Outlook checker results contain email:password combos
+outlook_results.txt*
+outlook_inbox.txt*
