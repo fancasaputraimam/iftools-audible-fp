@@ -356,7 +356,7 @@ export default function GrokPanel() {
                 <div className="run-field-group">
                   <div className="run-field-label">Accounts <span className="run-field-required">required</span></div>
                   <Input
-                    type="number" min="1" max="5000" placeholder="10"
+                    type="number" min="1" max="10000" placeholder="10"
                     value={count} onChange={(e) => setCount(e.target.value)}
                     className="status-count-input" autoComplete="off"
                     name="grok-count-x" data-lpignore="true" data-1p-ignore="true"

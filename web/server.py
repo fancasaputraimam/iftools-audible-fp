@@ -1608,7 +1608,7 @@ def _run_grok(count: int, speed: str, proxy: str, auth_mode: str,
 
 
 class GrokBody(BaseModel):
-    count: int = Field(10, ge=1, le=5000)
+    count: int = Field(10, ge=1, le=10000)
     speed: str = Field("normal", pattern="^(slow|normal|fast|maximum)$")
     proxy: str = ""
     proxy_list: str = ""
