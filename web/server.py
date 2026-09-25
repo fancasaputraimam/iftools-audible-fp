@@ -10,6 +10,7 @@ import os
 import re
 import secrets
 import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -1393,6 +1394,266 @@ async def api_outlook_results(
     if want("inbox"): merged.update(inbox)
     return Response(content="\n".join(creds_only(v) for v in merged.values()),
                     media_type="text/plain")
+
+
+# --------------------------------------------------------------------------- #
+# Grok Farm (xAI mass registration)
+# --------------------------------------------------------------------------- #
+GROK_DIR = Path(os.environ.get("GROK_FARM_DIR") or "/root/grok-farming/GROK CLI FARMING")
+GROK_RESULTS_FILE = GROK_DIR / "accounts.jsonl"
+_GROK_LOCK = threading.RLock()  # RLock: _grok_rescan holds it and calls _grok_add_result
+_GROK_STOP = threading.Event()
+_GROK_SEEN: set = set()
+_GROK_STATE: Dict[str, Any] = {
+    "running": False,
+    "done": False,
+    "total": 0,
+    "ok": 0,
+    "fail": 0,
+    "results": [],
+    "error": "",
+    "started_at": None,
+    "finished_at": None,
+}
+
+
+def _grok_reset(total: int) -> None:
+    with _GROK_LOCK:
+        _GROK_STATE.update(
+            running=True, done=False, total=total, ok=0, fail=0,
+            results=[], error="", started_at=time.time(), finished_at=None,
+        )
+        _GROK_STOP.clear()
+        _GROK_SEEN.clear()
+
+
+def _grok_parse_line(line: str) -> Optional[Tuple[str, str, str, str]]:
+    """Parse one mass_regist.py progress line.
+
+    Runner prints:  [  12/40] (30.0%)  ok   1/5  →  email:password (ok)
+    and a summary block at the end. Only progress lines carry account data.
+    """
+    m = re.match(
+        r"^\[\s*(\d+)/(\d+)\]\s*\([^)]*\)\s*(?:ok\s+\d+/\d+\s*→\s*)?"
+        r"([^\s:]+):(\S+)\s*\((.+)\)\s*$",
+        line,
+    )
+    if not m:
+        return None
+    email, password, note = m.group(3).strip(), m.group(4), m.group(5).strip()
+    note_l = note.lower()
+    if "ok" in note_l and "fail" not in note_l:
+        status = "ok"
+    elif "fail" in note_l or "error" in note_l or "bad" in note_l:
+        status = "fail"
+    else:
+        status = "check"
+    return email, password, status, note
+
+
+def _grok_add_result(email: str, password: str, status: str, note: str) -> None:
+    with _GROK_LOCK:
+        existing = next(
+            (i for i, r in enumerate(_GROK_STATE["results"]) if r["email"] == email),
+            None,
+        )
+        entry = {"email": email, "password": password, "status": status, "note": note}
+        if existing is not None:
+            old = _GROK_STATE["results"][existing]
+            if old["status"] == "ok":
+                _GROK_STATE["ok"] = max(0, _GROK_STATE["ok"] - 1)
+            elif old["status"] == "fail":
+                _GROK_STATE["fail"] = max(0, _GROK_STATE["fail"] - 1)
+            _GROK_STATE["results"][existing] = entry
+        else:
+            _GROK_STATE["results"].append(entry)
+        if status == "ok":
+            _GROK_STATE["ok"] += 1
+        elif status == "fail":
+            _GROK_STATE["fail"] += 1
+
+
+def _grok_rescan() -> None:
+    """Re-read accounts.jsonl and add any records we have not seen yet.
+
+    mass_regist appends one JSON record per finished account (ok or fail) —
+    it does not print an `email:pass (ok)` progress line, so this file is
+    the only source of truth for results.
+    """
+    global _GROK_SEEN
+    try:
+        lines = GROK_RESULTS_FILE.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return
+    added = 0
+    with _GROK_LOCK:
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except ValueError:
+                continue
+            email = obj.get("email")
+            if not email or email in _GROK_SEEN:
+                continue
+            _GROK_SEEN.add(email)
+            tok = obj.get("tokens") or {}
+            at = tok.get("access_token") or tok.get("accessToken") or ""
+            try:
+                tok_len = int(tok.get("access_token_len") or 0)
+            except (TypeError, ValueError):
+                tok_len = 0
+            has_token = (len(at) > 20) if at else (tok_len > 20)
+            status = "ok" if has_token else "fail"
+            err = str(obj.get("error") or "")
+            # keep the table tidy: first line of the error, capped
+            note = err.splitlines()[0][:160].strip() if not has_token and err else ""
+            _grok_add_result(email, obj.get("password") or "", status, note)
+            added += 1
+    if added:
+        _append_log(f"[*] grok: +{added} new account record(s) from accounts.jsonl")
+
+
+def _restore_grok_results() -> None:
+    """Rebuild grok state from accounts.jsonl after a restart."""
+    if not GROK_RESULTS_FILE.exists():
+        return
+    _GROK_SEEN.clear()
+    _grok_rescan()
+    _GROK_STATE["total"] = len(_GROK_STATE["results"])
+    _GROK_STATE["done"] = True
+    _GROK_STATE["finished_at"] = GROK_RESULTS_FILE.stat().st_mtime
+
+
+_restore_grok_results()
+
+
+def _run_grok(count: int, speed: str, proxy: str, auth_mode: str,
+              account_file: str, workers: Optional[int]) -> None:
+    """Run mass_regist.py as a subprocess and stream its output."""
+    venv_py = GROK_DIR / ".venv" / "bin" / "python"
+    py = str(venv_py) if venv_py.is_file() else sys.executable
+    script = GROK_DIR / "mass_regist.py"
+    cmd = [py, str(script), "-n", str(count), "--speed", speed, "--skip-inject"]
+    if workers:
+        cmd += ["-w", str(workers)]
+    if proxy:
+        cmd += ["--proxy", proxy]
+    if auth_mode == "google":
+        cmd += ["--auth-mode", "google"]
+        if account_file:
+            cmd += ["--account-file", account_file]
+    _append_log(f"[*] grok: starting {count} accounts (speed={speed} mode={auth_mode})")
+    try:
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            cwd=str(GROK_DIR), bufsize=1,
+        )
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            line = line.rstrip("\n")
+            if not line:
+                continue
+            _append_log(f"[grok] {line}")
+            # mass_regist writes one jsonl record per finished account to
+            # accounts.jsonl — rescan it to pick up new results in order.
+            try:
+                _grok_rescan()
+            except Exception:
+                pass
+            if _GROK_STOP.is_set():
+                proc.terminate()
+                break
+        proc.wait(timeout=30)
+        try:
+            _grok_rescan()
+        except Exception:
+            pass
+        _append_log(f"[*] grok: process exited rc={proc.returncode}")
+    except Exception as exc:
+        _append_log(f"[-] grok: {exc}")
+    finally:
+        with _GROK_LOCK:
+            _GROK_STATE["running"] = False
+            _GROK_STATE["done"] = True
+            _GROK_STATE["finished_at"] = time.time()
+        _append_log("[*] grok: job finished")
+
+
+class GrokBody(BaseModel):
+    count: int = Field(10, ge=1, le=5000)
+    speed: str = Field("normal", pattern="^(slow|normal|fast|maximum)$")
+    proxy: str = ""
+    auth_mode: str = Field("email", pattern="^(email|google)$")
+    account_file: str = ""
+    workers: Optional[int] = None
+
+
+@app.post("/api/grok/start")
+async def api_grok_start(
+    body: GrokBody, x_access_key: Optional[str] = Header(None)
+) -> Dict[str, Any]:
+    _require_auth(x_access_key)
+    with _GROK_LOCK:
+        if _GROK_STATE["running"]:
+            raise HTTPException(status_code=409, detail="grok job already running")
+    _grok_reset(body.count)
+    threading.Thread(
+        target=_run_grok,
+        args=(body.count, body.speed, body.proxy, body.auth_mode,
+              body.account_file, body.workers),
+        daemon=True,
+    ).start()
+    return {"ok": True, "started": True, "total": body.count}
+
+
+@app.post("/api/grok/stop")
+async def api_grok_stop(x_access_key: Optional[str] = Header(None)) -> Dict[str, Any]:
+    _require_auth(x_access_key)
+    _GROK_STOP.set()
+    _append_log("[!] grok: stop requested from web")
+    return {"ok": True, "stopped": True}
+
+
+@app.get("/api/grok/status")
+async def api_grok_status(x_access_key: Optional[str] = Header(None)) -> Dict[str, Any]:
+    _require_auth(x_access_key)
+    with _GROK_LOCK:
+        return {"ok": True, **_GROK_STATE}
+
+
+@app.get("/api/grok/results")
+async def api_grok_results(
+    x_access_key: Optional[str] = Header(None),
+    kind: str = Query("all", pattern="^(all|hits|fail)(,(all|hits|fail))*$"),
+    meta: int = Query(0),
+) -> Response:
+    _require_auth(x_access_key)
+    kinds = {k.strip() for k in (kind or "all").split(",") if k.strip()} or {"all"}
+    with _GROK_LOCK:
+        rows = list(_GROK_STATE.get("results") or [])
+    creds: dict[str, str] = {}
+    for row in rows:
+        email = row.get("email")
+        if not email:
+            continue
+        st = row.get("status")
+        if "all" not in kinds:
+            wanted = set()
+            if "hits" in kinds:
+                wanted.add("ok")
+            if "fail" in kinds:
+                wanted.add("fail")
+            if st not in wanted:
+                continue
+        line_out = (
+            f"{email}:{row.get('password') or ''} | {st} | {row.get('note') or ''}"
+            if meta else f"{email}:{row.get('password') or ''}"
+        )
+        creds[email] = line_out
+    return Response(content="\n".join(creds.values()), media_type="text/plain")
 
 
 # --------------------------------------------------------------------------- #

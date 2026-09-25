@@ -75,3 +75,4 @@ proxies*.txt
 # Outlook checker results contain email:password combos
 outlook_results.txt*
 outlook_inbox.txt*
+outlook_bad.txt

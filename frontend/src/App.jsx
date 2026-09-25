@@ -10,10 +10,12 @@ import {
   ScrollText,
   Stethoscope,
   X,
+  Zap,
 } from "lucide-react";
 import { api, getToken, setToken } from "./api.js";
 import AudiblePanel from "./components/AudiblePanel.jsx";
 import OutlookPanel from "./components/OutlookPanel.jsx";
+import GrokPanel from "./components/GrokPanel.jsx";
 import LogViewer from "./components/LogViewer.jsx";
 import {
   Badge,
@@ -31,6 +33,7 @@ import {
 const NAV = [
   { id: "checker", label: "Audible FP", sub: "Forgot-password checker", icon: AudioLines },
   { id: "outlook", label: "Outlook",    sub: "OAuth2 bruter + inboxer", icon: Mail },
+  { id: "grok",    label: "Grok Farm",  sub: "xAI mass registration",   icon: Zap },
   { id: "logs",    label: "Live Logs",  sub: "Streaming job output",    icon: ScrollText },
 ];
 
@@ -53,10 +56,13 @@ export default function App() {
     if (auth?.needs && !getToken()) return undefined;
     const timer = setInterval(
       () =>
-        api
-          .get("/api/audible/status")
-          .then((d) => setRunning(!!d.running))
-          .catch(() => {}),
+        Promise.all([
+          api.get("/api/audible/status").catch(() => ({})),
+          api.get("/api/outlook/status").catch(() => ({})),
+          api.get("/api/grok/status").catch(() => ({})),
+        ]).then(([a, o, g]) =>
+          setRunning(!!(a.running || o.running || g.running)),
+        ),
       2500,
     );
     return () => clearInterval(timer);
@@ -144,6 +150,7 @@ export default function App() {
   const ActivePanel = {
     checker: AudiblePanel,
     outlook: OutlookPanel,
+    grok: GrokPanel,
     logs: LogViewer,
   }[tab];
 
