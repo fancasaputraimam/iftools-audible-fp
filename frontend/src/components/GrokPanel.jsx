@@ -88,6 +88,7 @@ export default function GrokPanel() {
   const [accountFile, setAccountFile] = useState('')
   const [accountName, setAccountName] = useState('')
   const [workers, setWorkers] = useState('')
+  const [inject, setInject] = useState(true)
   const [running, setRunning] = useState(false)
   const [status, setStatus] = useState(null)
   const [results, setResults] = useState([])
@@ -199,6 +200,7 @@ export default function GrokPanel() {
         auth_mode: authMode,
         account_file: authMode === 'google' ? accountFile : undefined,
         workers: workers ? Number(workers) : undefined,
+        inject,
       })
       setRunning(true)
       showToast(`Started — ${n} accounts · ${speed} · ${authMode}`)
@@ -439,6 +441,18 @@ export default function GrokPanel() {
                     name="grok-workers-x" data-lpignore="true" data-1p-ignore="true" />
                   <div className="run-field-hint">Overrides the speed profile</div>
                 </div>
+                <div className="run-field-group">
+                  <div className="run-field-label">9router inject</div>
+                  <label className="run-toggle-row" style={styles.toggleRow}>
+                    <input type="checkbox" checked={inject} onChange={(e) => setInject(e.target.checked)} />
+                    <span>
+                      {inject ? 'Inject tokens into 9router' : 'Register only — no 9router inject'}
+                    </span>
+                  </label>
+                  <div className="run-field-hint">
+                    Pushes access tokens into the 9router sqlite ({inject ? 'on' : 'off'})
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -653,4 +667,5 @@ const styles = {
   progressTrack: { height: 10, borderRadius: 4, background: 'var(--surface-2)', overflow: 'hidden' },
   progressFill: { height: '100%', borderRadius: 4, transition: 'background 0.3s', willChange: 'transform', transformOrigin: 'left center' },
   progressLegend: { display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 10, fontSize: 12, fontWeight: 600 },
+  toggleRow: { display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer', fontSize: 13, fontWeight: 600, color: 'var(--text)' },
 }

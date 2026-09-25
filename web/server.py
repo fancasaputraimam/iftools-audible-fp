@@ -1531,12 +1531,19 @@ _restore_grok_results()
 
 
 def _run_grok(count: int, speed: str, proxy: str, auth_mode: str,
-              account_file: str, workers: Optional[int]) -> None:
+              account_file: str, workers: Optional[int],
+              inject: bool = True) -> None:
     """Run mass_regist.py as a subprocess and stream its output."""
     venv_py = GROK_DIR / ".venv" / "bin" / "python"
     py = str(venv_py) if venv_py.is_file() else sys.executable
     script = GROK_DIR / "mass_regist.py"
-    cmd = [py, str(script), "-n", str(count), "--speed", speed, "--skip-inject"]
+    # NINEROUTER_DB points at the 9router sqlite (see .env in the farm dir)
+    env = dict(os.environ)
+    env.setdefault("NINEROUTER_DB", "/root/.9router/db/data.sqlite")
+    if inject:
+        cmd = [py, str(script), "-n", str(count), "--speed", speed, "--inject-policy", "token"]
+    else:
+        cmd = [py, str(script), "-n", str(count), "--speed", speed, "--skip-inject"]
     if workers:
         cmd += ["-w", str(workers)]
     if proxy:
@@ -1549,7 +1556,7 @@ def _run_grok(count: int, speed: str, proxy: str, auth_mode: str,
     try:
         proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-            cwd=str(GROK_DIR), bufsize=1,
+            cwd=str(GROK_DIR), bufsize=1, env=env,
         )
         assert proc.stdout is not None
         for line in proc.stdout:
@@ -1589,6 +1596,7 @@ class GrokBody(BaseModel):
     auth_mode: str = Field("email", pattern="^(email|google)$")
     account_file: str = ""
     workers: Optional[int] = None
+    inject: bool = True
 
 
 @app.post("/api/grok/start")
@@ -1603,7 +1611,7 @@ async def api_grok_start(
     threading.Thread(
         target=_run_grok,
         args=(body.count, body.speed, body.proxy, body.auth_mode,
-              body.account_file, body.workers),
+              body.account_file, body.workers, body.inject),
         daemon=True,
     ).start()
     return {"ok": True, "started": True, "total": body.count}
