@@ -1532,8 +1532,12 @@ _restore_grok_results()
 
 def _run_grok(count: int, speed: str, proxy: str, auth_mode: str,
               account_file: str, workers: Optional[int],
-              inject: bool = True) -> None:
-    """Run mass_regist.py as a subprocess and stream its output."""
+              inject: bool = True, proxy_list: str = "") -> None:
+    """Run mass_regist.py as a subprocess and stream its output.
+
+    proxy_list: newline/comma separated proxy lines → written to a temp file
+    and passed as --proxy-file (mode=limit = rotate on 403/429/503 block).
+    """
     venv_py = GROK_DIR / ".venv" / "bin" / "python"
     py = str(venv_py) if venv_py.is_file() else sys.executable
     script = GROK_DIR / "mass_regist.py"
@@ -1546,13 +1550,27 @@ def _run_grok(count: int, speed: str, proxy: str, auth_mode: str,
         cmd = [py, str(script), "-n", str(count), "--speed", speed, "--skip-inject"]
     if workers:
         cmd += ["-w", str(workers)]
-    if proxy:
+    proxy_file_path: Optional[str] = None
+    raw: list = []
+    if proxy_list and proxy_list.strip():
+        # accept newline, comma, semicolon or whitespace separated lines
+        raw = [p.strip() for p in re.split(r"[\n,;\s]+", proxy_list) if p.strip()]
+        if raw:
+            proxy_file_path = str(GROK_DIR / "run" / "proxies.web.txt")
+            with open(proxy_file_path, "w", encoding="utf-8") as fh:
+                fh.write("\n".join(raw) + "\n")
+            # mode=limit: sticky IP per worker, rotate only on 403/429/503 block
+            cmd += ["--proxy-file", proxy_file_path, "--proxy-mode", "limit"]
+    elif proxy:
         cmd += ["--proxy", proxy]
     if auth_mode == "google":
         cmd += ["--auth-mode", "google"]
         if account_file:
             cmd += ["--account-file", account_file]
-    _append_log(f"[*] grok: starting {count} accounts (speed={speed} mode={auth_mode})")
+    _append_log(
+        f"[*] grok: starting {count} accounts (speed={speed} mode={auth_mode}"
+        + (f" proxies={len(raw)})" if (proxy_list and proxy_list.strip()) else ")")
+    )
     try:
         proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
@@ -1593,6 +1611,7 @@ class GrokBody(BaseModel):
     count: int = Field(10, ge=1, le=5000)
     speed: str = Field("normal", pattern="^(slow|normal|fast|maximum)$")
     proxy: str = ""
+    proxy_list: str = ""
     auth_mode: str = Field("email", pattern="^(email|google)$")
     account_file: str = ""
     workers: Optional[int] = None
@@ -1611,7 +1630,7 @@ async def api_grok_start(
     threading.Thread(
         target=_run_grok,
         args=(body.count, body.speed, body.proxy, body.auth_mode,
-              body.account_file, body.workers, body.inject),
+              body.account_file, body.workers, body.inject, body.proxy_list),
         daemon=True,
     ).start()
     return {"ok": True, "started": True, "total": body.count}

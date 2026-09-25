@@ -196,7 +196,9 @@ export default function GrokPanel() {
     setBusy(true)
     try {
       await api.post('/api/grok/start', {
-        count: n, speed, proxy,
+        count: n, speed,
+        proxy: proxyCount <= 1 ? proxy : '',
+        proxy_list: proxyCount > 1 ? proxy : '',
         auth_mode: authMode,
         account_file: authMode === 'google' ? accountFile : undefined,
         workers: workers ? Number(workers) : undefined,
@@ -244,6 +246,11 @@ export default function GrokPanel() {
     }
     return { label: 'Ready', tone: 'muted', title: 'Ready to register' }
   })()
+
+  // derived: how many proxy lines are in the textarea
+  const proxyCount = proxy
+    ? proxy.split(/[\n,;\s]+/).filter((l) => /^(https?|socks[45]?):\/\//.test(l.trim())).length
+    : 0
 
   const filteredResults = (() => {
     let rows = filter === 'all' ? results : results.filter((r) => r.status === filter)
@@ -419,15 +426,23 @@ export default function GrokPanel() {
                 )}
                 <div className="run-field-group">
                   <label htmlFor="grok-proxy" className="run-field-label">
-                    Proxy <span style={{ fontSize: 10, color: 'var(--text-3)' }}>optional</span>
+                    Proxy pool <span style={{ fontSize: 10, color: 'var(--text-3)' }}>optional</span>
                   </label>
-                  <Input
-                    id="grok-proxy" type="text" placeholder="http://user:pass@host:port"
-                    value={proxy} onChange={(e) => setProxy(e.target.value)}
+                  <textarea
+                    id="grok-proxy"
+                    rows={3}
+                    placeholder={'http://user:pass@host:port\nhttp://user:pass@host:port\nsocks5://user:pass@host:port'}
+                    value={proxy}
+                    onChange={(e) => setProxy(e.target.value)}
+                    spellCheck={false}
+                    className="ui-input"
+                    style={{ width: '100%', resize: 'vertical', fontFamily: 'ui-monospace, monospace', fontSize: 12 }}
                     autoComplete="off" name="grok-proxy-x" data-lpignore="true" data-1p-ignore="true"
                   />
                   <div className="run-field-hint">
-                    Single proxy, or leave blank to use the VPS IP directly
+                    {proxyCount > 1
+                      ? `${proxyCount} proxies · sticky IP per worker, auto-rotate on 403/429/503 block`
+                      : '1 proxy, or leave blank to use the VPS IP directly'}
                   </div>
                 </div>
                 <div className="run-field-group">
