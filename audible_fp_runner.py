@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """iftools — Audible FP runner.
 
-Thin wrapper around /root/audible_forgot_pw/audible_fp.py so the iftools
-console can drive it with the same options as the CLI, streaming progress
-to stdout for the web backend to parse.
+Thin wrapper around the in-repo audible_fp/ package so the iftools console can
+drive it with the same options as the CLI, streaming progress to stdout for the
+web backend to parse.
 
 Usage:
   python audible_fp_runner.py --batch accounts.txt --speed normal
@@ -18,10 +18,13 @@ import re
 import sys
 from pathlib import Path
 
-# The checker lives in its own project directory with its own venv deps.
-AUDIBLE_HOME = Path("/root/audible_forgot_pw")
+# The checker now lives in-repo (audible_fp/), but keep backward-compat with a
+# legacy standalone checkout at /root/audible_forgot_pw if it still exists.
+_REPO_DIR = Path(__file__).resolve().parent
+AUDIBLE_HOME = _REPO_DIR / "audible_fp"
+if not AUDIBLE_HOME.is_dir():
+    AUDIBLE_HOME = Path("/root/audible_forgot_pw")
 sys.path.insert(0, str(AUDIBLE_HOME))
-os.chdir(AUDIBLE_HOME)
 
 
 def _mask(line: str) -> str:
