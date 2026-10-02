@@ -54,7 +54,7 @@ const VERIF_FILTERS = [
   { id: 'all', label: 'All' },
   { id: 'v2l', label: 'V2L', match: (n) => n.startsWith('v2l') },
   { id: 'dcq', label: 'DCQ', match: (n) => n.startsWith('dcq') },
-  { id: 'otp', label: 'OTP', match: (n) => n.startsWith('otp_') },
+  { id: 'otp', label: 'OTP', match: (n) => n.startsWith('otp_') || n === 'otp' },
   { id: 'cc', label: 'CC', match: (n) => n.startsWith('cc:') },
   { id: 'push', label: 'Push', match: (n) => n.startsWith('push_notif') },
   { id: 'not_amazon', label: 'Not Amazon', match: (n) => n.includes('not_amazon') },
@@ -264,6 +264,9 @@ function StatusChip({ status, note }) {
   if (n.startsWith('cc:'))        return <Badge tone="warning">CC</Badge>
   if (n.startsWith('push_notif')) return <Badge tone="muted">Push?</Badge>
   if (n.startsWith('otp_sms'))    return <Badge tone="muted">OTP SMS?</Badge>
+  if (n.startsWith('otp_wa'))     return <Badge tone="muted">OTP WA?</Badge>
+  if (n.startsWith('otp_email'))  return <Badge tone="muted">OTP Email?</Badge>
+  if (n === 'otp')                return <Badge tone="muted">OTP?</Badge>
   return <Badge tone="warning">Check</Badge>
 }
 

@@ -462,10 +462,11 @@ def _audible_parse_line(line: str) -> Optional[Tuple[str, str, str, str]]:
     note_l = note.lower()
     if "fail" in note_l or "bad" in note_l or "error" in note_l:
         status = "fail"
-    elif ("otp_sms" in note_l or "otp_wa" in note_l or "otp_email" in note_l or note_l == "otp"
+    elif (note_l.startswith("otp_sms") or note_l.startswith("otp_wa")
+           or note_l.startswith("otp_email") or note_l == "otp"
            or "hit" in note_l or note_l.startswith("ok")
-           or note_l in ("v2l",) or note_l.startswith("dcq") or note_l.startswith("cc:")
-           or note_l.startswith("push_notif")):
+           or note_l.startswith("v2l") or note_l.startswith("dcq")
+           or note_l.startswith("cc:") or note_l.startswith("push_notif")):
         status = "ok"
     else:
         status = "check"
@@ -574,24 +575,28 @@ def _note_of(line: str) -> str:
 
 
 def _audible_classify(note: str) -> str:
-    """Map a result note to a download bucket. Mirrors _audible_parse_line."""
+    """Map a result note to a download bucket. Single source of truth."""
     n = (note or "").strip().lower()
     if "fail" in n or "bad" in n or "error" in n:
         return "fail"
-    if (n.startswith("otp_sms") or n.startswith("otp_wa") or n.startswith("otp_email")
-            or n.startswith("otp") or "hit" in n or n.startswith("ok")):
-        return "otp"
     if n.startswith("v2l"):
         return "v2l"
-    if n.startswith("dcq") or n.startswith("cc:") or n.startswith("push_notif"):
+    if n.startswith("dcq"):
         return "dcq"
+    if n.startswith("cc:"):
+        return "cc"
+    if n.startswith("push_notif"):
+        return "push"
+    if (n.startswith("otp_sms") or n.startswith("otp_wa") or n.startswith("otp_email")
+            or n == "otp" or "hit" in n or n.startswith("ok")):
+        return "otp"
     return "check"
 
 
 @app.get("/api/audible/results")
 async def api_audible_results(
     x_access_key: Optional[str] = Header(None),
-    kind: str = Query("all", pattern="^(all|hits|otp|v2l|dcq|check|fail)(,(all|hits|otp|v2l|dcq|check|fail))*$"),
+    kind: str = Query("all", pattern="^(all|hits|otp|v2l|dcq|cc|push|check|fail)(,(all|hits|otp|v2l|dcq|cc|push|check|fail))*$"),
     meta: str = Query("0", pattern="^(0|1)$"),
 ) -> Response:
     _require_auth(x_access_key)
@@ -640,30 +645,15 @@ async def api_audible_accounts(
             ln = ln.strip()
             if not ln or ln.startswith("#"):
                 continue
-            m = re.match(r"^([^:]+):(\S*)\s*\((.*)\)\s*$", ln)
-            if not m:
+            parsed = _audible_parse_line(ln)
+            if not parsed:
                 continue
-            email, pw, note = m.group(1).strip(), m.group(2), m.group(3).strip()
-            note_l = note.lower()
-            status = (
-                "fail"
-                if ("fail" in note_l or "bad" in note_l or "error" in note_l)
-                else "ok"
-                if ("otp_sms" in note_l or "otp_wa" in note_l or "otp_email" in note_l
-                    or "hit" in note_l or note_l.startswith("v2l")
-                    or note_l.startswith("dcq") or note_l.startswith("cc:")
-                    or note_l.startswith("push_notif"))
-                else "check"
-            )
-            rows.append(
-                {
-                    "email": email,
-                    "password": pw,
-                    "status": status,
-                    "note": note,
-                    "source": "audible",
-                }
-            )
+            email, pw, status, note = parsed
+            rows.append({
+                "email": email, "password": pw,
+                "status": status, "note": note,
+                "source": "audible",
+            })
     return {"ok": True, "total": len(rows), "items": rows}
 
 
