@@ -262,9 +262,9 @@ export default function GrokPanel() {
     <div style={styles.wrap}>
 
       {/* Hero */}
-      <Card style={styles.hero}>
+      <Card className="panel-hero" style={styles.hero}>
         <div style={styles.heroText}>
-          <div style={styles.eyebrow}>GROK CLI FARM</div>
+          <div className="panel-eyebrow" style={styles.eyebrow}>GROK CLI FARM</div>
           <h1 style={styles.heroTitle}>{statusInfo.title}</h1>
           <p style={styles.heroSub}>
             xAI / Grok mass registration. Full-HTTP tempmail farm, local free
@@ -597,7 +597,7 @@ export default function GrokPanel() {
             <Badge tone={logLive ? 'success' : 'muted'}>
               <ScrollText size={12} />{logLive ? 'Streaming' : 'Connecting'}
             </Badge>
-            <span>{logLines.length} lines</span>
+            <span>{logLines.length} {logLines.length === 1 ? 'line' : 'lines'}</span>
           </div>
           <div className="log-toolbar-group">
             <label className="log-follow">
@@ -680,7 +680,7 @@ const styles = {
   progressCard: { padding: '16px 20px' },
   progressHead: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 12.5, marginBottom: 10, flexWrap: 'wrap', gap: 8 },
   progressTrack: { height: 10, borderRadius: 4, background: 'var(--surface-2)', overflow: 'hidden' },
-  progressFill: { height: '100%', borderRadius: 4, transition: 'background 0.3s', willChange: 'transform', transformOrigin: 'left center' },
+  progressFill: { height: '100%', borderRadius: 4, transition: 'width 0.4s ease-out, background 0.3s', willChange: 'width', transformOrigin: 'left center' },
   progressLegend: { display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 10, fontSize: 12, fontWeight: 600 },
   toggleRow: { display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer', fontSize: 13, fontWeight: 600, color: 'var(--text)' },
 }

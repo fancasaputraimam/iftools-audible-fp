@@ -17,16 +17,19 @@ import {
   Layers,
   Pause,
   Play,
+  Radio,
   RefreshCw,
+  ScrollText,
   Search,
   Square,
   Target,
+  Trash2,
   Upload,
   User,
   XCircle,
 } from 'lucide-react'
-import { api } from '../api.js'
-import { Badge, Button, Card, Input, Spinner } from './ui.jsx'
+import { api, subscribeLogs } from '../api.js'
+import { Badge, Button, Card, Dialog, Input, Spinner } from './ui.jsx'
 import DownloadModal from './DownloadModal.jsx'
 
 const FILTERS = [
@@ -109,6 +112,42 @@ export default function OutlookPanel() {
   const pollRef  = useRef(null)
   const toastRef = useRef(null)
   const tickRef  = useRef(null)
+
+  // SSE logs
+  const [logLines, setLogLines] = useState([])
+  const [logLive, setLogLive] = useState(false)
+  const [logFollow, setLogFollow] = useState(true)
+  const logBoxRef = useRef(null)
+  const logUnsubRef = useRef(() => {})
+
+  useEffect(() => {
+    let closed = false
+    api.get('/api/logs/snapshot?limit=500')
+      .then((data) => {
+        if (closed) return
+        setLogLines(data.lines || [])
+        setLogLive(true)
+        subscribeLogs(data.seq || 0, (line) => {
+          if (closed) return
+          setLogLines((prev) => [...prev.slice(-1499), line])
+        }).then((unsub) => {
+          if (!closed) logUnsubRef.current = unsub
+        }).catch(() => {})
+      }).catch(() => {})
+    return () => { closed = true; logUnsubRef.current(); setLogLive(false) }
+  }, [])
+
+  useEffect(() => {
+    const el = logBoxRef.current
+    if (!logFollow || !el) return
+    el.scrollTop = el.scrollHeight
+  }, [logLines, logFollow])
+
+  function logTone(line) {
+    return line.includes('[+]') ? 'success'
+      : line.includes('[-]') || line.includes('[!]') ? 'danger'
+      : line.includes('[*]') ? 'accent' : ''
+  }
 
   useEffect(() => {
     tickRef.current = setInterval(() => setNow(Date.now()), 1000)
@@ -257,9 +296,9 @@ export default function OutlookPanel() {
     <div style={styles.wrap}>
 
       {/* Hero */}
-      <Card style={styles.hero}>
+      <Card className="panel-hero" style={styles.hero}>
         <div style={styles.heroText}>
-          <div style={styles.eyebrow}>OUTLOOK CHECKER</div>
+          <div className="panel-eyebrow" style={styles.eyebrow}>OUTLOOK CHECKER</div>
           <h1 style={styles.heroTitle}>{statusInfo.title}</h1>
           <p style={styles.heroSub}>
             Microsoft OAuth2 bruter + inbox keyword searcher.
@@ -544,8 +583,8 @@ export default function OutlookPanel() {
                   ) : (
                     <Button variant="primary" className="status-action-primary"
                       onClick={startJob}
-                      disabled={busy || !accounts || (mode === 'inboxer' && !keyword && !sender)}
-                      title={!accounts ? 'Load accounts first' : mode === 'inboxer' && !keyword && !sender ? 'Enter keyword or sender' : ''}>
+                      disabled={busy || !accounts || (mode === 'inboxer' && !keyword && !sender && !dateFrom && !dateTo)}
+                      title={!accounts ? 'Load accounts first' : mode === 'inboxer' && !keyword && !sender && !dateFrom && !dateTo ? 'Enter keyword, sender, or date range' : ''}>
                       {busy ? <Spinner /> : <Play size={16} />} Start checker
                     </Button>
                   )}
@@ -672,24 +711,44 @@ export default function OutlookPanel() {
         </Card>
       )}
 
-      {/* Stop confirm */}
-      {stopOpen && (
-        <div className="ui-dialog-backdrop" onClick={() => setStopOpen(false)}>
-          <div className="ui-dialog" onClick={(e) => e.stopPropagation()}>
-            <div className="ui-dialog-header">
-              <h2>Stop the running job?</h2>
-              <button className="ui-dialog-close" onClick={() => setStopOpen(false)}>×</button>
-            </div>
-            <div className="ui-dialog-body">
-              Current account finishes, then the job stops. Results so far are kept.
-            </div>
-            <div className="ui-dialog-footer">
-              <Button onClick={() => setStopOpen(false)}>Cancel</Button>
-              <Button variant="destructive" onClick={stopJob}><XCircle size={15} /> Stop</Button>
-            </div>
+      {/* Log stream */}
+      <Card className="log-layout" style={{ maxWidth: '100%' }}>
+        <div className="log-toolbar">
+          <div className="log-toolbar-group">
+            <Badge tone={logLive ? 'success' : 'muted'}>
+              <Radio size={12} />{logLive ? 'Streaming' : 'Connecting'}
+            </Badge>
+            <span>{logLines.length} {logLines.length === 1 ? 'line' : 'lines'}</span>
+          </div>
+          <div className="log-toolbar-group">
+            <label className="log-follow">
+              <input type="checkbox" checked={logFollow} onChange={(e) => setLogFollow(e.target.checked)} />
+              Auto-scroll
+            </label>
+            <Button size="sm" onClick={() => setLogLines([])}><Trash2 size={14} /> Clear</Button>
           </div>
         </div>
-      )}
+        <div className="log-terminal" ref={logBoxRef}>
+          {logLines.length === 0 ? (
+            <div className="ui-empty-state">
+              <ScrollText size={26} />
+              <strong>No logs yet</strong>
+              <p>Start a run and every checker step streams here.</p>
+            </div>
+          ) : (
+            logLines.map((line, index) => (
+              <div key={index} className={`log-line ${logTone(line)}`}>{line}</div>
+            ))
+          )}
+        </div>
+      </Card>
+
+      {/* Stop confirm */}
+      <Dialog open={stopOpen} onClose={() => setStopOpen(false)} title="Stop the running job?"
+        footer={<><Button onClick={() => setStopOpen(false)}>Cancel</Button>
+          <Button variant="destructive" onClick={stopJob}><XCircle size={15} /> Stop</Button></>}>
+        Current account finishes, then the job stops. Results so far are kept.
+      </Dialog>
 
       <DownloadModal
         open={dlOpen}
@@ -748,7 +807,7 @@ const styles = {
   progressCard: { padding: '16px 20px' },
   progressHead: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 12.5, marginBottom: 10 },
   progressTrack: { height: 10, borderRadius: 4, background: 'var(--surface-2)', overflow: 'hidden' },
-  progressFill: { height: '100%', borderRadius: 4, transition: 'background 0.3s', willChange: 'transform', transformOrigin: 'left center' },
+  progressFill: { height: '100%', borderRadius: 4, transition: 'width 0.4s ease-out, background 0.3s', willChange: 'width', transformOrigin: 'left center' },
   progressLegend: { display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 10, fontSize: 12, fontWeight: 600 },
   infoCell: { display: 'inline-flex', alignItems: 'center', fontSize: 12, color: 'var(--text-2)' },
 }

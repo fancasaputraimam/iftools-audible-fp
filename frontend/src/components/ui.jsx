@@ -32,9 +32,22 @@ export function Dialog({ open, onClose, title, children, footer }) {
 
   useEffect(() => {
     if (!open) return undefined
-    if (document.activeElement === document.body) dialogRef.current?.focus()
+    const dialog = dialogRef.current
+    if (!dialog) return undefined
+    if (document.activeElement === document.body) dialog.focus()
+
     const onKeyDown = (event) => {
-      if (event.key === 'Escape') onCloseRef.current()
+      if (event.key === 'Escape') { onCloseRef.current(); return }
+      if (event.key !== 'Tab') return
+      const focusable = dialog.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
+      if (!focusable.length) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (event.shiftKey) {
+        if (document.activeElement === first) { event.preventDefault(); last.focus() }
+      } else {
+        if (document.activeElement === last) { event.preventDefault(); first.focus() }
+      }
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)

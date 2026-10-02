@@ -7,7 +7,6 @@ import {
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
-  ScrollText,
   Stethoscope,
   X,
   Zap,
@@ -16,7 +15,6 @@ import { api, getToken, setToken } from "./api.js";
 import AudiblePanel from "./components/AudiblePanel.jsx";
 import OutlookPanel from "./components/OutlookPanel.jsx";
 import GrokPanel from "./components/GrokPanel.jsx";
-import LogViewer from "./components/LogViewer.jsx";
 import {
   Badge,
   Button,
@@ -34,7 +32,6 @@ const NAV = [
   { id: "checker", label: "Audible FP", sub: "Forgot-password checker", icon: AudioLines },
   { id: "outlook", label: "Outlook",    sub: "OAuth2 bruter + inboxer", icon: Mail },
   { id: "grok",    label: "Grok Farm",  sub: "xAI mass registration",   icon: Zap },
-  { id: "logs",    label: "Live Logs",  sub: "Streaming job output",    icon: ScrollText },
 ];
 
 export default function App() {
@@ -43,6 +40,7 @@ export default function App() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [running, setRunning] = useState(false);
+  const [loginBusy, setLoginBusy] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -89,6 +87,8 @@ export default function App() {
   }, [drawerOpen]);
 
   async function doLogin() {
+    if (loginBusy) return;
+    setLoginBusy(true);
     try {
       const data = await api.post("/api/auth", { username, password });
       setToken(data.token);
@@ -97,6 +97,8 @@ export default function App() {
       setPassword("");
     } catch (error) {
       alert(`Login failed: ${error.message}`);
+    } finally {
+      setLoginBusy(false);
     }
   }
 
@@ -140,8 +142,8 @@ export default function App() {
               onKeyDown={(e) => e.key === "Enter" && doLogin()}
             />
           </div>
-          <Button variant="primary" size="lg" onClick={doLogin}>
-            Sign in
+          <Button variant="primary" size="lg" onClick={doLogin} disabled={loginBusy}>
+            {loginBusy ? <><Spinner /> Signing in…</> : "Sign in"}
           </Button>
         </Card>
       </main>
@@ -151,7 +153,6 @@ export default function App() {
     checker: AudiblePanel,
     outlook: OutlookPanel,
     grok: GrokPanel,
-    logs: LogViewer,
   }[tab];
 
   return (
